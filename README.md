@@ -31,6 +31,16 @@ Required GitHub secret:
 AWS_GITHUB_ACTIONS_ROLE_ARN
 ```
 
+Create the AWS role for GitHub Actions OIDC:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File aws-kubernetes/scripts/create-github-actions-deploy-role.ps1 `
+  -GitHubOwner <your-github-user-or-org> `
+  -GitHubRepo <your-repo-name>
+```
+
+Copy the printed role ARN into the GitHub repository secret named `AWS_GITHUB_ACTIONS_ROLE_ARN`.
+
 The AWS role should be assumable by GitHub OIDC and have least-privilege access to:
 
 ```text
