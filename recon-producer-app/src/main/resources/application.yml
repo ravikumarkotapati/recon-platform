@@ -1,0 +1,40 @@
+server:
+  port: 8081
+  shutdown: graceful
+
+spring:
+  application:
+    name: recon-producer-app
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
+
+aws:
+  secrets:
+    enabled: ${AWS_SECRETS_ENABLED:false}
+    region: ${AWS_REGION:us-east-1}
+    name: ${AWS_SECRET_NAME:local}
+
+ibm:
+  mq:
+    queue-manager: ${MQ_QMGR:QM1}
+    channel: ${MQ_CHANNEL:DEV.APP.SVRCONN}
+    conn-name: ${MQ_CONN_NAME:localhost(1414)}
+    user: ${MQ_USER:app}
+    password: ${MQ_PASSWORD:pass}
+
+recon:
+  input-queue: ${RECON_INPUT_QUEUE:DEV.QUEUE.1}
+  producer-tps: ${PRODUCER_TPS:1}
+  producer-interval-ms: ${PRODUCER_INTERVAL_MS:10000}
+  invalid-percent: ${INVALID_PERCENT:0}
+  message-source: ${MESSAGE_SOURCE:recon-producer-app-local}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true

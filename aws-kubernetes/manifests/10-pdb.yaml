@@ -1,0 +1,32 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: recon-producer-app
+  namespace: recon-platform
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: recon-producer-app
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: recon-consumer-app
+  namespace: recon-platform
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: recon-consumer-app
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: recon-dashboard-api
+  namespace: recon-platform
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: recon-dashboard-api

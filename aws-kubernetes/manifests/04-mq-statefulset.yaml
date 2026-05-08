@@ -1,0 +1,89 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ibm-mq
+  namespace: recon-platform
+  labels:
+    app: ibm-mq
+spec:
+  serviceName: ibm-mq
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ibm-mq
+  template:
+    metadata:
+      labels:
+        app: ibm-mq
+    spec:
+      serviceAccountName: ibm-mq-sa
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        fsGroup: 1001
+      containers:
+        - name: ibm-mq
+          image: icr.io/ibm-messaging/mq:9.4.0.0-r1
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: mq
+              containerPort: 1414
+            - name: console
+              containerPort: 9443
+            - name: metrics
+              containerPort: 9157
+          env:
+            - name: LICENSE
+              value: "accept"
+            - name: MQ_QMGR_NAME
+              value: "QM1"
+            - name: MQ_ENABLE_METRICS
+              value: "true"
+            - name: MQ_APP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ibm-mq-runtime
+                  key: MQ_APP_PASSWORD
+            - name: MQ_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ibm-mq-runtime
+                  key: MQ_ADMIN_PASSWORD
+          volumeMounts:
+            - name: mq-data
+              mountPath: /mnt/mqm
+            - name: mq-config
+              mountPath: /etc/mqm/20-recon-queues.mqsc
+              subPath: 20-recon-queues.mqsc
+          readinessProbe:
+            tcpSocket:
+              port: 1414
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            failureThreshold: 12
+          livenessProbe:
+            tcpSocket:
+              port: 1414
+            initialDelaySeconds: 120
+            periodSeconds: 20
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "2"
+              memory: "3Gi"
+      volumes:
+        - name: mq-config
+          configMap:
+            name: ibm-mq-config
+  volumeClaimTemplates:
+    - metadata:
+        name: mq-data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: gp3
+        resources:
+          requests:
+            storage: 20Gi

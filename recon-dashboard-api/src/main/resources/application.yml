@@ -1,0 +1,48 @@
+server:
+  port: 8083
+  shutdown: graceful
+
+spring:
+  application:
+    name: recon-dashboard-api
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USER}
+    password: ${DB_PASSWORD}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
+
+aws:
+  secrets:
+    enabled: ${AWS_SECRETS_ENABLED}
+    region: ${AWS_REGION}
+    name: ${AWS_SECRET_NAME}
+
+ibm:
+  mq:
+    queue-manager: ${MQ_QMGR}
+    channel: ${MQ_CHANNEL}
+    conn-name: ${MQ_CONN_NAME}
+    user: ${MQ_USER}
+    password: ${MQ_PASSWORD}
+
+recon:
+  input-queue: ${RECON_INPUT_QUEUE}
+  retry-queue: ${RECON_RETRY_QUEUE}
+  backout-queue: ${RECON_BACKOUT_QUEUE}
+  dead-letter-queue: ${RECON_DLQ}
+  replay-queue: ${RECON_REPLAY_QUEUE}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true

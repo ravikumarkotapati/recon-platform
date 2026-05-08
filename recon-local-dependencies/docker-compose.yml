@@ -1,0 +1,43 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: recon-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  ibm-mq:
+    image: icr.io/ibm-messaging/mq:9.4.0.0-r1
+    container_name: recon-ibm-mq
+    ports:
+      - "1414:1414"
+      - "9443:9443"
+      - "9157:9157"
+    environment:
+      LICENSE: accept
+      MQ_QMGR_NAME: ${MQ_QMGR_NAME}
+      MQ_APP_PASSWORD: ${MQ_APP_PASSWORD}
+      MQ_ADMIN_PASSWORD: ${MQ_ADMIN_PASSWORD}
+      MQ_ENABLE_METRICS: "true"
+    volumes:
+      - mq-data:/mnt/mqm
+    healthcheck:
+      test: ["CMD-SHELL", "dspmq | grep RUNNING"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+
+volumes:
+  postgres-data:
+  mq-data:

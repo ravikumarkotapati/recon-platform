@@ -1,0 +1,29 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/recondb
+    username: recon_app
+    password: change-me-local-db-password
+  jpa:
+    hibernate:
+      ddl-auto: validate
+
+aws:
+  secrets:
+    enabled: false
+    region: ap-southeast-1
+    name: local-disabled
+
+ibm:
+  mq:
+    queue-manager: QM1
+    channel: DEV.APP.SVRCONN
+    conn-name: localhost(1414)
+    user: app
+    password: change-me-local-mq-password
+
+recon:
+  input-queue: RECON.IN
+  retry-queue: RECON.RETRY
+  backout-queue: RECON.BACKOUT
+  dead-letter-queue: SYSTEM.DEAD.LETTER.QUEUE
+  replay-queue: RECON.REPLAY

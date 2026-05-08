@@ -1,0 +1,52 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/recondb
+    username: recon_app
+    password: change-me-local-db-password
+  jpa:
+    hibernate:
+      ddl-auto: validate
+
+management:
+  health:
+    jms:
+      enabled: true
+
+aws:
+  secrets:
+    enabled: false
+    region: ap-southeast-1
+    name: local-disabled
+
+ibm:
+  mq:
+    queue-manager: QM1
+    channel: DEV.APP.SVRCONN
+    conn-name: localhost(1414)
+    user: app
+    password: change-me-local-mq-password
+
+recon:
+  input-queue: RECON.IN
+  retry-queue: RECON.RETRY
+  backout-queue: RECON.BACKOUT
+  dead-letter-queue: SYSTEM.DEAD.LETTER.QUEUE
+  replay-queue: RECON.REPLAY
+  listener-concurrency: 1
+  listener-max-concurrency: 1
+  db-deadlock-retry-attempts: 3
+  db-slow-threshold-ms: 500
+
+resilience4j:
+  circuitbreaker:
+    instances:
+      databaseCircuitBreaker:
+        slidingWindowSize: 10
+        minimumNumberOfCalls: 5
+        failureRateThreshold: 50
+        waitDurationInOpenState: 30s
+  bulkhead:
+    instances:
+      databaseBulkhead:
+        maxConcurrentCalls: 5
+        maxWaitDuration: 100ms
