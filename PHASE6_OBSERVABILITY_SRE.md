@@ -14,6 +14,7 @@ This phase adds an operational observability layer for the reconciliation platfo
 | Deadlock monitoring | `recon_db_deadlock_retries_total` counter |
 | TPS metrics | `recon_producer_messages_total` and `recon_consumer_messages_total` rates |
 | Retry metrics | `recon_retry_messages_total`, `recon_backout_messages_total`, `recon_dead_letter_messages_total` |
+| Producer back-pressure | `recon_producer_backpressure_skips_total` and `recon_producer_input_queue_depth_observed` prevent endless queue growth |
 | Error-rate dashboards | Grafana dashboard panel and Prometheus alert |
 | Alerts | Prometheus alert rules for app down, retry backlog, backout, DLQ, deadlocks, error rate |
 
@@ -159,6 +160,8 @@ Useful queries:
 ```promql
 up{namespace="recon-platform"}
 rate(recon_producer_messages_total[1m])
+increase(recon_producer_backpressure_skips_total[5m])
+recon_producer_input_queue_depth_observed
 rate(recon_consumer_messages_total[1m])
 mq_queue_depth
 increase(recon_retry_messages_total[5m])

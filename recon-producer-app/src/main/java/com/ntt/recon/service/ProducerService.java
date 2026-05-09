@@ -32,6 +32,7 @@ public class ProducerService {
     private final ReconciliationProperties properties;
     private final TransactionGenerator generator;
     private final SimulationState simulationState;
+    private final QueueBackpressureGuard backpressureGuard;
     private final Counter produced;
     private final Counter producerFailures;
     private final Counter generationFailures;
@@ -41,12 +42,14 @@ public class ProducerService {
             ReconciliationProperties properties,
             TransactionGenerator generator,
             SimulationState simulationState,
+            QueueBackpressureGuard backpressureGuard,
             MeterRegistry registry
     ) {
         this.jmsTemplate = jmsTemplate;
         this.properties = properties;
         this.generator = generator;
         this.simulationState = simulationState;
+        this.backpressureGuard = backpressureGuard;
         this.produced = Counter.builder("recon_producer_messages_total").register(registry);
         this.producerFailures = Counter.builder("recon_producer_failures_total").register(registry);
         this.generationFailures = Counter.builder("recon_producer_generation_failures_total").register(registry);
@@ -67,6 +70,9 @@ public class ProducerService {
         if (mode == SimulationMode.MQ_OUTAGE) {
             producerFailures.increment();
             log.warn("mq_outage_simulated=true action=skip_publish");
+            return;
+        }
+        if (!backpressureGuard.canPublish()) {
             return;
         }
         for (int i = 0; i < properties.producerTps(); i++) {

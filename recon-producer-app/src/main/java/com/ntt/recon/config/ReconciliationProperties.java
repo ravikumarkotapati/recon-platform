@@ -8,6 +8,7 @@ public record ReconciliationProperties(
         int producerTps,
         long producerIntervalMs,
         int invalidPercent,
-        String messageSource
+        String messageSource,
+        int maxInputQueueDepth
 ) {
 }

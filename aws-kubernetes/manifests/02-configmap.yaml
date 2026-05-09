@@ -23,9 +23,10 @@ data:
   OTEL_TRACES_SAMPLER_PROBABILITY: "1.0"
   OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "http://jaeger-collector.observability.svc.cluster.local:4318/v1/traces"
 
-  PRODUCER_TPS: "25"
+  PRODUCER_TPS: "2"
   PRODUCER_INTERVAL_MS: "1000"
-  INVALID_PERCENT: "5"
+  INVALID_PERCENT: "10"
+  MAX_INPUT_QUEUE_DEPTH: "250"
   MESSAGE_SOURCE: "recon-producer-eks"
 
   CONSUMER_CONCURRENCY: "2"

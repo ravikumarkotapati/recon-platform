@@ -28,6 +28,7 @@ recon:
   producer-interval-ms: ${PRODUCER_INTERVAL_MS:10000}
   invalid-percent: ${INVALID_PERCENT:0}
   message-source: ${MESSAGE_SOURCE:recon-producer-app-local}
+  max-input-queue-depth: ${MAX_INPUT_QUEUE_DEPTH:1000}
 
 management:
   tracing:

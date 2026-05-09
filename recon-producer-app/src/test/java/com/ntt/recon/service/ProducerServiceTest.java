@@ -30,13 +30,15 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 class ProducerServiceTest {
     private final JmsTemplate jmsTemplate = mock(JmsTemplate.class);
     private final TransactionGenerator generator = mock(TransactionGenerator.class);
+    private final QueueBackpressureGuard backpressureGuard = mock(QueueBackpressureGuard.class);
     private final SimulationState simulationState = new SimulationState();
 
     @Test
     void publishBatchPublishesConfiguredTransactionsToInputQueue() {
         ReconciliationTransaction transaction = transaction(SimulationMode.NORMAL);
         when(generator.next(5, SimulationMode.NORMAL, "unit-test-producer")).thenReturn(transaction);
-        ProducerService service = new ProducerService(jmsTemplate, properties(3), generator, simulationState, new SimpleMeterRegistry());
+        when(backpressureGuard.canPublish()).thenReturn(true);
+        ProducerService service = service(3);
 
         service.publishBatch();
 
@@ -47,7 +49,7 @@ class ProducerServiceTest {
     @Test
     void mqOutageSimulationDoesNotPublishMessages() {
         simulationState.set(SimulationMode.MQ_OUTAGE);
-        ProducerService service = new ProducerService(jmsTemplate, properties(3), generator, simulationState, new SimpleMeterRegistry());
+        ProducerService service = service(3);
 
         service.publishBatch();
 
@@ -59,7 +61,8 @@ class ProducerServiceTest {
     void publishBatchHandlesUnexpectedGenerationFailureAndContinuesScheduler() {
         when(generator.next(5, SimulationMode.NORMAL, "unit-test-producer"))
                 .thenThrow(new IllegalStateException("generator unavailable"));
-        ProducerService service = new ProducerService(jmsTemplate, properties(3), generator, simulationState, new SimpleMeterRegistry());
+        when(backpressureGuard.canPublish()).thenReturn(true);
+        ProducerService service = service(3);
 
         assertDoesNotThrow(service::publishBatch);
 
@@ -71,7 +74,8 @@ class ProducerServiceTest {
         simulationState.set(SimulationMode.DUPLICATE_MESSAGE);
         ReconciliationTransaction transaction = transaction(SimulationMode.DUPLICATE_MESSAGE);
         when(generator.next(5, SimulationMode.DUPLICATE_MESSAGE, "unit-test-producer")).thenReturn(transaction);
-        ProducerService service = new ProducerService(jmsTemplate, properties(1), generator, simulationState, new SimpleMeterRegistry());
+        when(backpressureGuard.canPublish()).thenReturn(true);
+        ProducerService service = service(1);
 
         service.publishBatch();
 
@@ -98,9 +102,10 @@ class ProducerServiceTest {
     void publishBatchContinuesWhenMqPublishFails() {
         ReconciliationTransaction transaction = transaction(SimulationMode.NORMAL);
         when(generator.next(5, SimulationMode.NORMAL, "unit-test-producer")).thenReturn(transaction);
+        when(backpressureGuard.canPublish()).thenReturn(true);
         doThrow(new JmsException("mq unavailable") { })
                 .when(jmsTemplate).convertAndSend(eq("RECON.IN"), eq(transaction), any(MessagePostProcessor.class));
-        ProducerService service = new ProducerService(jmsTemplate, properties(1), generator, simulationState, new SimpleMeterRegistry());
+        ProducerService service = service(1);
 
         assertDoesNotThrow(service::publishBatch);
 
@@ -111,17 +116,33 @@ class ProducerServiceTest {
     void publishBatchCatchesUnexpectedPublishRuntimeFailure() {
         ReconciliationTransaction transaction = transaction(SimulationMode.NORMAL);
         when(generator.next(5, SimulationMode.NORMAL, "unit-test-producer")).thenReturn(transaction);
+        when(backpressureGuard.canPublish()).thenReturn(true);
         doThrow(new IllegalArgumentException("message conversion failed"))
                 .when(jmsTemplate).convertAndSend(eq("RECON.IN"), eq(transaction), any(MessagePostProcessor.class));
-        ProducerService service = new ProducerService(jmsTemplate, properties(1), generator, simulationState, new SimpleMeterRegistry());
+        ProducerService service = service(1);
 
         assertDoesNotThrow(service::publishBatch);
 
         assertThat(transaction.transactionId()).isEqualTo("txn-1");
     }
 
+    @Test
+    void publishBatchSkipsWhenBackpressureIsActive() {
+        when(backpressureGuard.canPublish()).thenReturn(false);
+        ProducerService service = service(3);
+
+        service.publishBatch();
+
+        verify(generator, never()).next(any(Integer.class), any(SimulationMode.class), any(String.class));
+        verify(jmsTemplate, never()).convertAndSend(any(String.class), any(Object.class), any(MessagePostProcessor.class));
+    }
+
+    private ProducerService service(int tps) {
+        return new ProducerService(jmsTemplate, properties(tps), generator, simulationState, backpressureGuard, new SimpleMeterRegistry());
+    }
+
     private static ReconciliationProperties properties(int tps) {
-        return new ReconciliationProperties("RECON.IN", tps, 1000, 5, "unit-test-producer");
+        return new ReconciliationProperties("RECON.IN", tps, 1000, 5, "unit-test-producer", 100);
     }
 
     private static ReconciliationTransaction transaction(SimulationMode mode) {

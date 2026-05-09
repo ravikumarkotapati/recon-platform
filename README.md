@@ -68,3 +68,16 @@ recon/prod/app
 ```
 
 Use `aws-kubernetes/scripts/create-aws-secret-template.json` only as a local template and replace placeholders locally before creating/updating the AWS secret.
+
+## Producer Traffic Controls
+
+The producer continuously generates randomized reconciliation messages while it is running:
+
+```text
+PRODUCER_TPS              messages per scheduled run
+PRODUCER_INTERVAL_MS      scheduler interval
+INVALID_PERCENT           percentage of generated invalid transactions
+MAX_INPUT_QUEUE_DEPTH     pause publishing when RECON.IN reaches this depth
+```
+
+The EKS default is intentionally conservative for the assessment cluster: `2 TPS`, `10%` invalid messages, and producer back-pressure at `250` messages in `RECON.IN`.
