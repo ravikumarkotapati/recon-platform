@@ -102,6 +102,28 @@ cd E:\workspace\aws-kubernetes\scripts
 .\sync-mq-runtime-secret.ps1
 ```
 
+## 4a. Apply IBM MQ OAM Authorities
+
+If producer or consumer logs show `MQRC 2035` / `MQRC_NOT_AUTHORIZED`, apply the queue manager and queue-level authorities for the MQ application principal:
+
+```powershell
+cd E:\workspace
+powershell -ExecutionPolicy Bypass -File aws-kubernetes\scripts\apply-mq-oam-authorities.ps1
+```
+
+Then restart the producer and consumer deployments:
+
+```powershell
+kubectl rollout restart deployment/recon-producer-app -n recon-platform
+kubectl rollout restart deployment/recon-consumer-app -n recon-platform
+```
+
+Detailed incident notes are in:
+
+```text
+E:\workspace\PHASE2_MQRC2035_FAILURE_ANALYSIS.md
+```
+
 ## 5. Configure Placeholders
 
 Replace placeholders in manifests:

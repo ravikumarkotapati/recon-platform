@@ -11,6 +11,7 @@ recon-dashboard-api/       Dashboard/API service, exposes status and replay APIs
 recon-local-dependencies/  Local Docker Compose dependencies
 aws-kubernetes/            EKS manifests, SQL schema, and deployment scripts
 PHASE2_RESILIENCY_RUNBOOK.md
+PHASE2_MQRC2035_FAILURE_ANALYSIS.md
 ```
 
 ## Local Build

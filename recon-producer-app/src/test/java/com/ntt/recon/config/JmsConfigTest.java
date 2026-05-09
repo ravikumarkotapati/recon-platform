@@ -1,5 +1,6 @@
 package com.ntt.recon.config;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.jms.ConnectionFactory;
 import org.junit.jupiter.api.Test;
 import org.springframework.jms.core.JmsTemplate;
@@ -11,10 +12,11 @@ import static org.mockito.Mockito.mock;
 
 class JmsConfigTest {
     private final JmsConfig config = new JmsConfig();
+    private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
 
     @Test
     void createsJacksonTextMessageConverter() {
-        MessageConverter converter = config.jacksonJmsMessageConverter();
+        MessageConverter converter = config.jacksonJmsMessageConverter(objectMapper);
 
         assertThat(converter).isInstanceOf(MappingJackson2MessageConverter.class);
     }
@@ -22,7 +24,7 @@ class JmsConfigTest {
     @Test
     void createsTransactedJmsTemplateWithConfiguredConverter() {
         ConnectionFactory connectionFactory = mock(ConnectionFactory.class);
-        MessageConverter converter = config.jacksonJmsMessageConverter();
+        MessageConverter converter = config.jacksonJmsMessageConverter(objectMapper);
 
         JmsTemplate template = config.jmsTemplate(connectionFactory, converter);
 

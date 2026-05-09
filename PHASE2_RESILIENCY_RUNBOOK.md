@@ -208,6 +208,14 @@ Expected behavior:
 - Failure does not expose secrets.
 - Recovery is to restore the correct AWS Secrets Manager value or local environment variable.
 
+For the AWS EKS deployment incident walkthrough, see:
+
+```text
+E:\workspace\PHASE2_MQRC2035_FAILURE_ANALYSIS.md
+```
+
+That document captures the real observed failure where pods were healthy but no messages processed because the IBM MQ `app` principal was missing queue object authorities.
+
 ## Queue Inspection
 
 ```powershell
