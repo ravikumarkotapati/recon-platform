@@ -18,6 +18,10 @@ spec:
       app: recon-dashboard-api
   template:
     metadata:
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/actuator/prometheus"
+        prometheus.io/port: "8083"
       labels:
         app: recon-dashboard-api
     spec:

@@ -79,6 +79,19 @@ jobs:
       - name: Configure kubectl
         run: aws eks update-kubeconfig --region "$AWS_REGION" --name "$EKS_CLUSTER_NAME"
 
+      - name: Ensure observability secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          kubectl get namespace observability >/dev/null 2>&1 || kubectl create namespace observability
+
+          if ! kubectl -n observability get secret grafana-admin-credentials >/dev/null 2>&1; then
+            GRAFANA_PASSWORD="$(openssl rand -base64 24)"
+            kubectl -n observability create secret generic grafana-admin-credentials \
+              --from-literal=admin-user=admin \
+              --from-literal=admin-password="$GRAFANA_PASSWORD"
+          fi
+
       - name: Apply Kubernetes manifests
         run: kubectl apply -k aws-kubernetes/manifests
 

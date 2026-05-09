@@ -42,6 +42,13 @@ recon:
   db-slow-threshold-ms: ${DB_SLOW_THRESHOLD_MS}
 
 management:
+  tracing:
+    enabled: ${TRACING_ENABLED:false}
+    sampling:
+      probability: ${OTEL_TRACES_SAMPLER_PROBABILITY:1.0}
+  otlp:
+    tracing:
+      endpoint: ${OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:http://jaeger-collector.observability.svc.cluster.local:4318/v1/traces}
   endpoints:
     web:
       exposure:

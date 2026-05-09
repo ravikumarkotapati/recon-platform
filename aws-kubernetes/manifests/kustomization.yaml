@@ -14,3 +14,7 @@ resources:
   - 09-hpa.yaml
   - 10-pdb.yaml
   - 11-network-policy.yaml
+  - 12-observability-namespace.yaml
+  - 13-prometheus.yaml
+  - 14-grafana.yaml
+  - 15-jaeger.yaml
