@@ -16,6 +16,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
@@ -85,7 +86,12 @@ class ProducerServiceTest {
 
         verify(first).setJMSCorrelationID("duplicate-correlation-id");
         verify(first).setStringProperty("source", "unit-test-producer");
+        verify(first).setStringProperty(eq("traceparent"),
+                argThat(value -> value.matches("00-[0-9a-f]{32}-[0-9a-f]{16}-01")));
+        verify(first).setStringProperty(eq("traceId"), argThat(value -> value.matches("[0-9a-f]{32}")));
         verify(second).setJMSCorrelationID("duplicate-correlation-id");
+        verify(second).setStringProperty(eq("traceparent"),
+                argThat(value -> value.matches("00-[0-9a-f]{32}-[0-9a-f]{16}-01")));
     }
 
     @Test

@@ -4,9 +4,15 @@ import com.ntt.recon.config.ReconciliationProperties;
 import com.ntt.recon.domain.ReconciliationTransaction;
 import com.ntt.recon.domain.SimulationMode;
 import com.ntt.recon.exception.ProducerPublishException;
+import com.ntt.recon.observability.TraceHeaders;
 import com.ntt.recon.support.MqExceptionClassifier;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
+import io.opentelemetry.api.GlobalOpenTelemetry;
+import io.opentelemetry.api.trace.Span;
+import io.opentelemetry.api.trace.SpanKind;
+import io.opentelemetry.api.trace.StatusCode;
+import io.opentelemetry.context.Scope;
 import jakarta.jms.Message;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -76,11 +82,23 @@ public class ProducerService {
     }
 
     private void publish(ReconciliationTransaction transaction, String correlationId) {
-        try (MDC.MDCCloseable ignored = MDC.putCloseable("correlationId", correlationId)) {
-            jmsTemplate.convertAndSend(properties.inputQueue(), transaction, message -> enrich(message, correlationId));
+        Span span = GlobalOpenTelemetry.getTracer("recon-producer-app")
+                .spanBuilder("mq publish " + properties.inputQueue())
+                .setSpanKind(SpanKind.PRODUCER)
+                .startSpan();
+        try (Scope ignoredScope = span.makeCurrent()) {
+            TraceHeaders traceHeaders = TraceHeaders.currentOrNew();
+            try (MDC.MDCCloseable ignoredCorrelation = MDC.putCloseable("correlationId", correlationId);
+                 MDC.MDCCloseable ignoredTrace = MDC.putCloseable("traceId", traceHeaders.traceId());
+                 MDC.MDCCloseable ignoredSpan = MDC.putCloseable("spanId", traceHeaders.spanId())) {
+                jmsTemplate.convertAndSend(properties.inputQueue(), transaction,
+                        message -> enrich(message, correlationId, traceHeaders));
+            }
             produced.increment();
             log.info("event=transaction_published transactionId={} queue={}", transaction.transactionId(), properties.inputQueue());
         } catch (JmsException ex) {
+            span.recordException(ex);
+            span.setStatus(StatusCode.ERROR);
             producerFailures.increment();
             if (MqExceptionClassifier.isMqrc2035(ex)) {
                 log.error("event=mq_authorization_failed mqrc=2035 action=verify_mq_user_channel_authentication transactionId={}",
@@ -89,15 +107,20 @@ public class ProducerService {
             }
             log.error("event=transaction_publish_failed transactionId={} action=continue", transaction.transactionId(), ex);
         } catch (RuntimeException ex) {
+            span.recordException(ex);
+            span.setStatus(StatusCode.ERROR);
             producerFailures.increment();
             throw new ProducerPublishException("Unexpected producer failure while publishing transaction " + transaction.transactionId(), ex);
+        } finally {
+            span.end();
         }
     }
 
-    private Message enrich(Message message, String correlationId) throws jakarta.jms.JMSException {
+    private Message enrich(Message message, String correlationId, TraceHeaders traceHeaders) throws jakarta.jms.JMSException {
         message.setJMSCorrelationID(correlationId);
         message.setStringProperty("correlationId", correlationId);
-        message.setStringProperty("traceparent", UUID.randomUUID().toString());
+        message.setStringProperty("traceparent", traceHeaders.traceparent());
+        message.setStringProperty("traceId", traceHeaders.traceId());
         message.setStringProperty("source", properties.messageSource());
         return message;
     }

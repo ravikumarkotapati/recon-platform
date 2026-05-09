@@ -8,7 +8,7 @@ This phase adds an operational observability layer for the reconciliation platfo
 |---|---|
 | Structured logging | JSON console logs through Logstash Logback encoder in all three apps |
 | Correlation IDs | JMS correlation ID and MDC `correlationId` included in app logs |
-| Distributed tracing | Micrometer Tracing with OpenTelemetry OTLP export to Jaeger |
+| Distributed tracing | Micrometer/OpenTelemetry OTLP export to Jaeger, plus W3C `traceparent` propagation across IBM MQ |
 | Metrics collection | Spring Boot Actuator Prometheus endpoint on every app |
 | Queue depth monitoring | `mq_queue_depth{queue="..."}` gauge from dashboard API |
 | Deadlock monitoring | `recon_db_deadlock_retries_total` counter |
@@ -209,6 +209,15 @@ kubectl logs -n recon-platform deploy/recon-consumer-app --tail=80
 Look for the same `correlationId`.
 
 4. Search Jaeger by service and time range.
+
+The producer writes W3C trace context to each MQ message:
+
+```text
+traceparent=00-<traceId>-<spanId>-01
+traceId=<traceId>
+```
+
+The consumer extracts `traceparent`, adds `traceId` and `spanId` to structured logs, and preserves the same trace context when moving messages to retry or backout queues.
 
 5. Use the dashboard API to inspect status:
 

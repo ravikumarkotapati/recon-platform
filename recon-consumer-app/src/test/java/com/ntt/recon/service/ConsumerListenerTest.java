@@ -27,6 +27,9 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class ConsumerListenerTest {
+    private static final String TRACEPARENT = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
+    private static final String TRACE_ID = "4bf92f3577b34da6a3ce929d0e0e4736";
+
     private final ReconciliationService reconciliationService = mock(ReconciliationService.class);
     private final JmsTemplate jmsTemplate = mock(JmsTemplate.class);
     private final ConsumerListener listener = new ConsumerListener(reconciliationService, jmsTemplate, props(), new SimpleMeterRegistry());
@@ -40,7 +43,12 @@ class ConsumerListenerTest {
 
         listener.onMessage(transaction, message);
 
-        verify(jmsTemplate).convertAndSend(eq("RECON.BACKOUT"), eq(transaction), any(MessagePostProcessor.class));
+        org.mockito.ArgumentCaptor<MessagePostProcessor> captor = org.mockito.ArgumentCaptor.forClass(MessagePostProcessor.class);
+        verify(jmsTemplate).convertAndSend(eq("RECON.BACKOUT"), eq(transaction), captor.capture());
+        Message backoutMessage = mock(Message.class);
+        captor.getValue().postProcessMessage(backoutMessage);
+        verify(backoutMessage).setStringProperty("traceparent", TRACEPARENT);
+        verify(backoutMessage).setStringProperty("traceId", TRACE_ID);
     }
 
     @Test
@@ -65,7 +73,12 @@ class ConsumerListenerTest {
 
         listener.onMessage(transaction, message);
 
-        verify(jmsTemplate).convertAndSend(eq("RECON.RETRY"), eq(transaction), any(MessagePostProcessor.class));
+        org.mockito.ArgumentCaptor<MessagePostProcessor> captor = org.mockito.ArgumentCaptor.forClass(MessagePostProcessor.class);
+        verify(jmsTemplate).convertAndSend(eq("RECON.RETRY"), eq(transaction), captor.capture());
+        Message retryMessage = mock(Message.class);
+        captor.getValue().postProcessMessage(retryMessage);
+        verify(retryMessage).setStringProperty("traceparent", TRACEPARENT);
+        verify(retryMessage).setStringProperty("traceId", TRACE_ID);
     }
 
     @Test
@@ -149,6 +162,7 @@ class ConsumerListenerTest {
         when(message.getJMSCorrelationID()).thenReturn("corr-1");
         when(message.getJMSMessageID()).thenReturn("msg-1");
         when(message.getIntProperty("JMSXDeliveryCount")).thenReturn(deliveryCount);
+        when(message.getStringProperty("traceparent")).thenReturn(TRACEPARENT);
         return message;
     }
 

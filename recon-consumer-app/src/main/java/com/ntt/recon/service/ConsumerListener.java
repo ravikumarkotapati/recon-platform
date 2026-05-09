@@ -6,9 +6,17 @@ import com.ntt.recon.domain.SimulationMode;
 import com.ntt.recon.exception.BackoutPublishException;
 import com.ntt.recon.exception.ReconciliationProcessingException;
 import com.ntt.recon.exception.RetryPublishException;
+import com.ntt.recon.observability.TraceHeaders;
 import com.ntt.recon.support.MqExceptionClassifier;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
+import io.opentelemetry.api.GlobalOpenTelemetry;
+import io.opentelemetry.api.trace.Span;
+import io.opentelemetry.api.trace.SpanKind;
+import io.opentelemetry.api.trace.StatusCode;
+import io.opentelemetry.context.Context;
+import io.opentelemetry.context.Scope;
+import io.opentelemetry.context.propagation.TextMapGetter;
 import jakarta.jms.JMSException;
 import jakarta.jms.Message;
 import org.slf4j.Logger;
@@ -20,12 +28,32 @@ import org.springframework.jms.core.JmsTemplate;
 import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.stereotype.Component;
 
+import java.util.List;
+
 @Component
 public class ConsumerListener {
     private static final Logger log = LoggerFactory.getLogger(ConsumerListener.class);
     private static final int DEFAULT_BACKOUT_THRESHOLD = 3;
     private static final String RETRY_ATTEMPT_PROPERTY = "reconRetryAttempt";
     private static final int MAX_FAILURE_REASON_LENGTH = 512;
+    private static final TextMapGetter<Message> JMS_TRACE_GETTER = new TextMapGetter<>() {
+        @Override
+        public Iterable<String> keys(Message carrier) {
+            return List.of("traceparent", "tracestate");
+        }
+
+        @Override
+        public String get(Message carrier, String key) {
+            if (carrier == null) {
+                return null;
+            }
+            try {
+                return carrier.getStringProperty(key);
+            } catch (JMSException ex) {
+                return null;
+            }
+        }
+    };
 
     private final ReconciliationService reconciliationService;
     private final JmsTemplate jmsTemplate;
@@ -66,41 +94,63 @@ public class ConsumerListener {
 
     private void handleMessage(ReconciliationTransaction transaction, Message message, boolean retryQueueMessage) throws JMSException {
         String correlationId = correlationId(message);
-        try (MDC.MDCCloseable ignored = MDC.putCloseable("correlationId", correlationId)) {
-            if (transaction == null) {
-                throw new ReconciliationProcessingException("Received null transaction payload", null);
+        Context parentContext = GlobalOpenTelemetry.getPropagators()
+                .getTextMapPropagator()
+                .extract(Context.current(), message, JMS_TRACE_GETTER);
+        Span span = GlobalOpenTelemetry.getTracer("recon-consumer-app")
+                .spanBuilder("mq consume " + (retryQueueMessage ? properties.retryQueue() : properties.inputQueue()))
+                .setParent(parentContext)
+                .setSpanKind(SpanKind.CONSUMER)
+                .startSpan();
+        TraceHeaders traceHeaders;
+        try (Scope ignoredScope = span.makeCurrent()) {
+            traceHeaders = TraceHeaders.currentOr(message);
+            try (MDC.MDCCloseable ignoredCorrelation = MDC.putCloseable("correlationId", correlationId);
+                 MDC.MDCCloseable ignoredTrace = MDC.putCloseable("traceId", traceHeaders.traceId());
+                 MDC.MDCCloseable ignoredSpan = MDC.putCloseable("spanId", traceHeaders.spanId())) {
+                if (transaction == null) {
+                    throw new ReconciliationProcessingException("Received null transaction payload", null);
+                }
+                if (transaction.simulationMode() == SimulationMode.CONSUMER_CRASH) {
+                    log.error("event=consumer_crash_simulated correlationId={}", correlationId);
+                    Runtime.getRuntime().halt(137);
+                }
+                consumed.increment();
+                log.info("event=transaction_consumed transactionId={}", transaction.transactionId());
+                reconciliationService.reconcileWithRetry(transaction, correlationId);
             }
-            if (transaction.simulationMode() == SimulationMode.CONSUMER_CRASH) {
-                log.error("event=consumer_crash_simulated correlationId={}", correlationId);
-                Runtime.getRuntime().halt(137);
-            }
-            consumed.increment();
-            log.info("event=transaction_consumed transactionId={}", transaction.transactionId());
-            reconciliationService.reconcileWithRetry(transaction, correlationId);
         } catch (RuntimeException ex) {
+            span.recordException(ex);
+            span.setStatus(StatusCode.ERROR);
             processingFailures.increment();
-            handleProcessingFailure(transaction, message, correlationId, retryQueueMessage, ex);
+            handleProcessingFailure(transaction, message, correlationId, TraceHeaders.currentOr(message), retryQueueMessage, ex);
+        } finally {
+            span.end();
         }
     }
 
     private void handleProcessingFailure(ReconciliationTransaction transaction,
                                          Message message,
                                          String correlationId,
+                                         TraceHeaders traceHeaders,
                                          boolean retryQueueMessage,
                                          RuntimeException ex) {
         int deliveryCount = deliveryCount(message);
         int retryAttempt = retryAttempt(message);
         if (deliveryCount >= DEFAULT_BACKOUT_THRESHOLD || retryAttempt >= DEFAULT_BACKOUT_THRESHOLD - 1) {
-            moveToBackout(transaction, correlationId, ex);
+            moveToBackout(transaction, correlationId, traceHeaders, ex);
             return;
         }
-        moveToRetry(transaction, correlationId, retryQueueMessage ? retryAttempt + 1 : 1, ex);
+        moveToRetry(transaction, correlationId, traceHeaders, retryQueueMessage ? retryAttempt + 1 : 1, ex);
     }
 
-    private void moveToRetry(ReconciliationTransaction transaction, String correlationId, int nextRetryAttempt, RuntimeException ex) {
+    private void moveToRetry(ReconciliationTransaction transaction, String correlationId, TraceHeaders traceHeaders,
+                             int nextRetryAttempt, RuntimeException ex) {
         try {
             jmsTemplate.convertAndSend(properties.retryQueue(), transaction, out -> {
                 out.setJMSCorrelationID(correlationId);
+                out.setStringProperty("traceparent", traceHeaders.traceparent());
+                out.setStringProperty("traceId", traceHeaders.traceId());
                 out.setStringProperty("originalQueue", properties.inputQueue());
                 out.setIntProperty(RETRY_ATTEMPT_PROPERTY, nextRetryAttempt);
                 out.setStringProperty("failureReason", safeReason(ex));
@@ -121,10 +171,13 @@ public class ConsumerListener {
         }
     }
 
-    private void moveToBackout(ReconciliationTransaction transaction, String correlationId, RuntimeException ex) {
+    private void moveToBackout(ReconciliationTransaction transaction, String correlationId, TraceHeaders traceHeaders,
+                               RuntimeException ex) {
         try {
             jmsTemplate.convertAndSend(properties.backoutQueue(), transaction, out -> {
                 out.setJMSCorrelationID(correlationId);
+                out.setStringProperty("traceparent", traceHeaders.traceparent());
+                out.setStringProperty("traceId", traceHeaders.traceId());
                 out.setStringProperty("originalQueue", properties.inputQueue());
                 out.setStringProperty("failureReason", safeReason(ex));
                 return out;
