@@ -69,10 +69,10 @@ spec:
           resources:
             requests:
               cpu: "500m"
-              memory: "1Gi"
+              memory: "512Mi"
             limits:
               cpu: "2"
-              memory: "3Gi"
+              memory: "1536Mi"
       volumes:
         - name: mq-config
           configMap:
