@@ -48,18 +48,33 @@ data:
       "uid": "recon-platform",
       "title": "Reconciliation Platform SRE",
       "schemaVersion": 39,
-      "version": 1,
+      "version": 2,
       "refresh": "15s",
       "tags": ["reconciliation", "ibm-mq", "sre"],
-      "time": {"from": "now-1h", "to": "now"},
+      "time": {"from": "now-5m", "to": "now"},
+      "templating": {"list": []},
+      "annotations": {"list": []},
       "panels": [
+        {
+          "id": 100,
+          "type": "text",
+          "title": "",
+          "transparent": true,
+          "options": {
+            "mode": "markdown",
+            "content": "## Enterprise Reconciliation Platform - Live SRE View\nSelected-time totals use `increase(...[$__range])`, so changing Grafana time range updates the counts. Runtime view covers Producer, IBM MQ, Consumer, Dashboard/API, PostgreSQL connection pool, and resiliency events."
+          },
+          "gridPos": {"x": 0, "y": 0, "w": 24, "h": 3}
+        },
         {
           "id": 1,
           "type": "stat",
           "title": "Producer TPS",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "targets": [{"expr": "sum(rate(recon_producer_messages_total[1m]))", "legendFormat": "TPS"}],
-          "gridPos": {"x": 0, "y": 0, "w": 6, "h": 4}
+          "fieldConfig": {"defaults": {"unit": "ops", "decimals": 2, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "blue", "value": null}, {"color": "green", "value": 1}]}}, "overrides": []},
+          "options": {"colorMode": "background", "graphMode": "area", "justifyMode": "center", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto", "wideLayout": true},
+          "gridPos": {"x": 0, "y": 3, "w": 4, "h": 4}
         },
         {
           "id": 2,
@@ -67,23 +82,29 @@ data:
           "title": "Consumer TPS",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "targets": [{"expr": "sum(rate(recon_consumer_messages_total[1m]))", "legendFormat": "TPS"}],
-          "gridPos": {"x": 6, "y": 0, "w": 6, "h": 4}
+          "fieldConfig": {"defaults": {"unit": "ops", "decimals": 2, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "blue", "value": null}, {"color": "green", "value": 1}]}}, "overrides": []},
+          "options": {"colorMode": "background", "graphMode": "area", "justifyMode": "center", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto", "wideLayout": true},
+          "gridPos": {"x": 4, "y": 3, "w": 4, "h": 4}
         },
         {
           "id": 3,
           "type": "stat",
-          "title": "Total Messages Published",
+          "title": "Published in Selected Range",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "targets": [{"expr": "sum(recon_producer_messages_total)", "legendFormat": "published"}],
-          "gridPos": {"x": 12, "y": 0, "w": 6, "h": 4}
+          "targets": [{"expr": "round(sum(increase(recon_producer_messages_total[$__range])))", "legendFormat": "published"}],
+          "fieldConfig": {"defaults": {"unit": "short", "decimals": 0, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "purple", "value": null}, {"color": "blue", "value": 1}]}}, "overrides": []},
+          "options": {"colorMode": "background", "graphMode": "area", "justifyMode": "center", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto", "wideLayout": true},
+          "gridPos": {"x": 8, "y": 3, "w": 4, "h": 4}
         },
         {
           "id": 4,
           "type": "stat",
-          "title": "Total Messages Processed",
+          "title": "Consumed in Selected Range",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "targets": [{"expr": "sum(recon_consumer_messages_total)", "legendFormat": "processed"}],
-          "gridPos": {"x": 18, "y": 0, "w": 6, "h": 4}
+          "targets": [{"expr": "round(sum(increase(recon_consumer_messages_total[$__range])))", "legendFormat": "consumed"}],
+          "fieldConfig": {"defaults": {"unit": "short", "decimals": 0, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "purple", "value": null}, {"color": "green", "value": 1}]}}, "overrides": []},
+          "options": {"colorMode": "background", "graphMode": "area", "justifyMode": "center", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto", "wideLayout": true},
+          "gridPos": {"x": 12, "y": 3, "w": 4, "h": 4}
         },
         {
           "id": 5,
@@ -91,43 +112,53 @@ data:
           "title": "Consumer Error Rate",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "targets": [{"expr": "sum(rate(recon_consumer_processing_failures_total[5m])) / clamp_min(sum(rate(recon_consumer_messages_total[5m])), 1)", "legendFormat": "error-rate"}],
-          "gridPos": {"x": 0, "y": 4, "w": 12, "h": 4}
+          "fieldConfig": {"defaults": {"unit": "percentunit", "decimals": 2, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 0.01}, {"color": "red", "value": 0.05}]}}, "overrides": []},
+          "options": {"colorMode": "background", "graphMode": "area", "justifyMode": "center", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto", "wideLayout": true},
+          "gridPos": {"x": 16, "y": 3, "w": 4, "h": 4}
         },
         {
           "id": 6,
           "type": "stat",
           "title": "Deadlock Retries",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "targets": [{"expr": "sum(increase(recon_db_deadlock_retries_total[5m]))", "legendFormat": "deadlocks"}],
-          "gridPos": {"x": 12, "y": 4, "w": 12, "h": 4}
+          "targets": [{"expr": "sum(increase(recon_db_deadlock_retries_total[$__range]))", "legendFormat": "deadlocks"}],
+          "fieldConfig": {"defaults": {"unit": "short", "decimals": 0, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 1}, {"color": "red", "value": 5}]}}, "overrides": []},
+          "options": {"colorMode": "background", "graphMode": "area", "justifyMode": "center", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto", "wideLayout": true},
+          "gridPos": {"x": 20, "y": 3, "w": 4, "h": 4}
         },
         {
           "id": 7,
           "type": "timeseries",
-          "title": "MQ Queue Depth",
+          "title": "IBM MQ Queue Depth",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "targets": [{"expr": "mq_queue_depth", "legendFormat": "{{queue}}"}],
-          "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8}
+          "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "lineInterpolation": "smooth", "lineWidth": 2, "fillOpacity": 10, "showPoints": "auto"}}, "overrides": []},
+          "options": {"legend": {"displayMode": "table", "placement": "bottom"}, "tooltip": {"mode": "multi", "sort": "none"}},
+          "gridPos": {"x": 0, "y": 7, "w": 12, "h": 8}
         },
         {
           "id": 8,
           "type": "timeseries",
-          "title": "Retry and Backout Messages",
+          "title": "Retry, Backout, and Dead Letter Events",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "targets": [
-            {"expr": "sum(increase(recon_retry_messages_total[5m]))", "legendFormat": "retry"},
-            {"expr": "sum(increase(recon_backout_messages_total[5m]))", "legendFormat": "backout"},
-            {"expr": "sum(increase(recon_dead_letter_messages_total[5m]))", "legendFormat": "dead-letter"}
+            {"expr": "sum(increase(recon_retry_messages_total[$__range]))", "legendFormat": "retry"},
+            {"expr": "sum(increase(recon_backout_messages_total[$__range]))", "legendFormat": "backout"},
+            {"expr": "sum(increase(recon_dead_letter_messages_total[$__range]))", "legendFormat": "dead-letter"}
           ],
-          "gridPos": {"x": 12, "y": 8, "w": 12, "h": 8}
+          "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "bars", "lineWidth": 1, "fillOpacity": 35, "showPoints": "never"}}, "overrides": []},
+          "options": {"legend": {"displayMode": "table", "placement": "bottom"}, "tooltip": {"mode": "multi", "sort": "none"}},
+          "gridPos": {"x": 12, "y": 7, "w": 12, "h": 8}
         },
         {
           "id": 9,
           "type": "timeseries",
-          "title": "Application Availability",
+          "title": "Component Availability - Producer, Consumer, Dashboard",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "targets": [{"expr": "up{namespace=\"recon-platform\"}", "legendFormat": "{{app}}/{{pod}}"}],
-          "gridPos": {"x": 0, "y": 16, "w": 12, "h": 8}
+          "fieldConfig": {"defaults": {"unit": "short", "min": 0, "max": 1, "custom": {"drawStyle": "line", "lineInterpolation": "stepAfter", "lineWidth": 2, "fillOpacity": 12, "showPoints": "auto"}}, "overrides": []},
+          "options": {"legend": {"displayMode": "table", "placement": "bottom"}, "tooltip": {"mode": "multi", "sort": "none"}},
+          "gridPos": {"x": 0, "y": 15, "w": 12, "h": 8}
         },
         {
           "id": 10,
@@ -135,7 +166,114 @@ data:
           "title": "HTTP Server Request Latency p95",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "targets": [{"expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket[5m])) by (le, app, uri))", "legendFormat": "{{app}} {{uri}}"}],
-          "gridPos": {"x": 12, "y": 16, "w": 12, "h": 8}
+          "fieldConfig": {"defaults": {"unit": "s", "custom": {"drawStyle": "line", "lineInterpolation": "smooth", "lineWidth": 2, "fillOpacity": 8, "showPoints": "never"}}, "overrides": []},
+          "options": {"legend": {"displayMode": "table", "placement": "bottom"}, "tooltip": {"mode": "multi", "sort": "none"}},
+          "gridPos": {"x": 12, "y": 15, "w": 12, "h": 8}
+        },
+        {
+          "id": 11,
+          "type": "stat",
+          "title": "Processing Lag",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [{"expr": "clamp_min(round(sum(increase(recon_producer_messages_total[$__range])) - sum(increase(recon_consumer_messages_total[$__range]))), 0)", "legendFormat": "published-minus-consumed"}],
+          "fieldConfig": {"defaults": {"unit": "short", "decimals": 0, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 25}, {"color": "red", "value": 100}]}}, "overrides": []},
+          "options": {"colorMode": "background", "graphMode": "area", "justifyMode": "center", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto", "wideLayout": true},
+          "gridPos": {"x": 0, "y": 23, "w": 4, "h": 4}
+        },
+        {
+          "id": 12,
+          "type": "stat",
+          "title": "Availability %",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [{"expr": "100 * avg(up{namespace=\"recon-platform\"})", "legendFormat": "availability"}],
+          "fieldConfig": {"defaults": {"unit": "percent", "decimals": 1, "min": 0, "max": 100, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "orange", "value": 80}, {"color": "green", "value": 99}]}}, "overrides": []},
+          "options": {"colorMode": "background", "graphMode": "area", "justifyMode": "center", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto", "wideLayout": true},
+          "gridPos": {"x": 4, "y": 23, "w": 4, "h": 4}
+        },
+        {
+          "id": 13,
+          "type": "stat",
+          "title": "Producer Failures",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [{"expr": "round(sum(increase(recon_producer_failures_total[$__range])) + sum(increase(recon_producer_generation_failures_total[$__range])))", "legendFormat": "failures"}],
+          "fieldConfig": {"defaults": {"unit": "short", "decimals": 0, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 1}, {"color": "red", "value": 5}]}}, "overrides": []},
+          "options": {"colorMode": "background", "graphMode": "area", "justifyMode": "center", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto", "wideLayout": true},
+          "gridPos": {"x": 8, "y": 23, "w": 4, "h": 4}
+        },
+        {
+          "id": 14,
+          "type": "stat",
+          "title": "Backpressure Skips",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [{"expr": "round(sum(increase(recon_producer_backpressure_skips_total[$__range])))", "legendFormat": "skips"}],
+          "fieldConfig": {"defaults": {"unit": "short", "decimals": 0, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 1}, {"color": "red", "value": 10}]}}, "overrides": []},
+          "options": {"colorMode": "background", "graphMode": "area", "justifyMode": "center", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto", "wideLayout": true},
+          "gridPos": {"x": 12, "y": 23, "w": 4, "h": 4}
+        },
+        {
+          "id": 15,
+          "type": "stat",
+          "title": "Backout Queue Depth",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [{"expr": "max(mq_queue_depth{queue=\"RECON.BACKOUT\"})", "legendFormat": "backout-depth"}],
+          "fieldConfig": {"defaults": {"unit": "short", "decimals": 0, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 1}, {"color": "red", "value": 10}]}}, "overrides": []},
+          "options": {"colorMode": "background", "graphMode": "area", "justifyMode": "center", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto", "wideLayout": true},
+          "gridPos": {"x": 16, "y": 23, "w": 4, "h": 4}
+        },
+        {
+          "id": 16,
+          "type": "stat",
+          "title": "DLQ Depth",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [{"expr": "max(mq_queue_depth{queue=\"SYSTEM.DEAD.LETTER.QUEUE\"})", "legendFormat": "dlq-depth"}],
+          "fieldConfig": {"defaults": {"unit": "short", "decimals": 0, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 1}, {"color": "red", "value": 5}]}}, "overrides": []},
+          "options": {"colorMode": "background", "graphMode": "area", "justifyMode": "center", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto", "wideLayout": true},
+          "gridPos": {"x": 20, "y": 23, "w": 4, "h": 4}
+        },
+        {
+          "id": 17,
+          "type": "timeseries",
+          "title": "Reconciliation Outcomes",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {"expr": "sum(increase(recon_records_reconciled_total[$__range]))", "legendFormat": "reconciled"},
+            {"expr": "sum(increase(recon_records_invalid_total[$__range]))", "legendFormat": "invalid"},
+            {"expr": "sum(increase(recon_duplicate_messages_total[$__range]))", "legendFormat": "duplicates"}
+          ],
+          "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "bars", "lineWidth": 1, "fillOpacity": 35, "showPoints": "never"}}, "overrides": []},
+          "options": {"legend": {"displayMode": "table", "placement": "bottom"}, "tooltip": {"mode": "multi", "sort": "none"}},
+          "gridPos": {"x": 0, "y": 27, "w": 8, "h": 7}
+        },
+        {
+          "id": 18,
+          "type": "timeseries",
+          "title": "PostgreSQL Connection Pool",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {"expr": "hikaricp_connections_active{namespace=\"recon-platform\"}", "legendFormat": "{{app}} active"},
+            {"expr": "hikaricp_connections_pending{namespace=\"recon-platform\"}", "legendFormat": "{{app}} pending"}
+          ],
+          "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "lineInterpolation": "smooth", "lineWidth": 2, "fillOpacity": 10, "showPoints": "auto"}}, "overrides": []},
+          "options": {"legend": {"displayMode": "table", "placement": "bottom"}, "tooltip": {"mode": "multi", "sort": "none"}},
+          "gridPos": {"x": 8, "y": 27, "w": 8, "h": 7}
+        },
+        {
+          "id": 19,
+          "type": "timeseries",
+          "title": "JVM Heap Used by Component",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [{"expr": "sum(jvm_memory_used_bytes{namespace=\"recon-platform\",area=\"heap\"}) by (app)", "legendFormat": "{{app}}"}],
+          "fieldConfig": {"defaults": {"unit": "bytes", "custom": {"drawStyle": "line", "lineInterpolation": "smooth", "lineWidth": 2, "fillOpacity": 10, "showPoints": "auto"}}, "overrides": []},
+          "options": {"legend": {"displayMode": "table", "placement": "bottom"}, "tooltip": {"mode": "multi", "sort": "none"}},
+          "gridPos": {"x": 16, "y": 27, "w": 8, "h": 7}
+        },
+        {
+          "id": 20,
+          "type": "table",
+          "title": "Live Component Scrape Status",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [{"expr": "up{namespace=\"recon-platform\"}", "format": "table", "instant": true, "legendFormat": "{{app}}/{{pod}}"}],
+          "gridPos": {"x": 0, "y": 34, "w": 24, "h": 7}
         }
       ]
     }
