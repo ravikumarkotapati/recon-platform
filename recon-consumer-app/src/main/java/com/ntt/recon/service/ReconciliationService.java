@@ -88,6 +88,23 @@ public class ReconciliationService {
         }
     }
 
+    @Transactional
+    public void recordFailure(ReconciliationTransaction transaction, String correlationId, ReconciliationStatus status, String reason) {
+        if (transaction == null) {
+            log.warn("event=failed_record_not_persisted reason=null_transaction correlationId={}", correlationId);
+            return;
+        }
+        try {
+            ReconciliationRecord record = repository.findByCorrelationId(correlationId)
+                    .orElseGet(() -> ReconciliationRecord.from(transaction, correlationId));
+            record.mark(status, reason);
+            repository.saveAndFlush(record);
+        } catch (DataIntegrityViolationException ex) {
+            duplicates.increment();
+            log.info("event=failed_record_duplicate_race correlationId={}", correlationId);
+        }
+    }
+
     @SuppressWarnings("unused")
     void degrade(ReconciliationTransaction transaction, String correlationId, Throwable throwable) {
         log.error("event=database_circuit_open correlationId={} action=graceful_degradation", correlationId, throwable);
@@ -123,4 +140,3 @@ public class ReconciliationService {
         }
     }
 }
-

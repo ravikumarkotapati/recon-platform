@@ -1,6 +1,7 @@
 package com.ntt.recon.service;
 
 import com.ntt.recon.config.ReconciliationProperties;
+import com.ntt.recon.domain.ReconciliationStatus;
 import com.ntt.recon.domain.ReconciliationTransaction;
 import com.ntt.recon.domain.SimulationMode;
 import com.ntt.recon.exception.BackoutPublishException;
@@ -43,6 +44,7 @@ class ConsumerListenerTest {
 
         listener.onMessage(transaction, message);
 
+        verify(reconciliationService).recordFailure(transaction, "corr-1", ReconciliationStatus.FAILED, "processing failed");
         org.mockito.ArgumentCaptor<MessagePostProcessor> captor = org.mockito.ArgumentCaptor.forClass(MessagePostProcessor.class);
         verify(jmsTemplate).convertAndSend(eq("RECON.BACKOUT"), eq(transaction), captor.capture());
         Message backoutMessage = mock(Message.class);
@@ -62,6 +64,7 @@ class ConsumerListenerTest {
 
         assertThatThrownBy(() -> listener.onMessage(transaction, message))
                 .isInstanceOf(BackoutPublishException.class);
+        verify(reconciliationService).recordFailure(transaction, "corr-1", ReconciliationStatus.FAILED, "processing failed");
     }
 
     @Test
@@ -116,6 +119,7 @@ class ConsumerListenerTest {
 
         listener.onRetryMessage(transaction, message);
 
+        verify(reconciliationService).recordFailure(transaction, "corr-1", ReconciliationStatus.FAILED, "processing failed");
         verify(jmsTemplate).convertAndSend(eq("RECON.BACKOUT"), eq(transaction), any(MessagePostProcessor.class));
     }
 
@@ -138,6 +142,7 @@ class ConsumerListenerTest {
 
         listener.onMessage(null, message);
 
+        verify(reconciliationService).recordFailure(isNull(), eq("corr-1"), eq(ReconciliationStatus.FAILED), any());
         verify(jmsTemplate).convertAndSend(eq("RECON.BACKOUT"), isNull(), any(MessagePostProcessor.class));
     }
 

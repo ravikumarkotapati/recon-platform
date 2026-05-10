@@ -8,13 +8,10 @@ import org.springframework.jms.core.JmsTemplate;
 import org.springframework.stereotype.Component;
 
 import java.util.Enumeration;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 @Component
 public class QueueDepthMetrics {
     private final JmsTemplate jmsTemplate;
-    private final Map<String, Number> gauges = new ConcurrentHashMap<>();
 
     public QueueDepthMetrics(JmsTemplate jmsTemplate, ReconciliationProperties properties, MeterRegistry registry) {
         this.jmsTemplate = jmsTemplate;
@@ -31,7 +28,7 @@ public class QueueDepthMetrics {
                 .register(registry);
     }
 
-    private int depth(String queue) {
+    public int depth(String queue) {
         try {
             return jmsTemplate.browse(queue, (BrowserCallback<Integer>) (session, browser) -> {
                 int count = 0;
@@ -47,4 +44,3 @@ public class QueueDepthMetrics {
         }
     }
 }
-

@@ -1,9 +1,11 @@
 package com.ntt.recon.api;
 
+import com.ntt.recon.config.ReconciliationProperties;
 import com.ntt.recon.domain.ReconciliationRecord;
 import com.ntt.recon.domain.ReconciliationStatus;
 import com.ntt.recon.domain.ReconciliationTransaction;
 import com.ntt.recon.domain.SimulationMode;
+import com.ntt.recon.observability.QueueDepthMetrics;
 import com.ntt.recon.repository.ReconciliationRepository;
 import com.ntt.recon.service.ReplayService;
 import org.junit.jupiter.api.Test;
@@ -26,7 +28,8 @@ import static org.mockito.Mockito.when;
 class ReconciliationControllerTest {
     private final ReconciliationRepository repository = mock(ReconciliationRepository.class);
     private final ReplayService replayService = mock(ReplayService.class);
-    private final ReconciliationController controller = new ReconciliationController(repository, replayService);
+    private final QueueDepthMetrics queueDepthMetrics = mock(QueueDepthMetrics.class);
+    private final ReconciliationController controller = new ReconciliationController(repository, replayService, properties(), queueDepthMetrics);
 
     @Test
     void statusReturnsReconciliationCounts() {
@@ -73,14 +76,32 @@ class ReconciliationControllerTest {
     }
 
     @Test
-    void queuesReturnsOperationalBacklogGuidance() {
+    void queuesReturnsCurrentBacklogDepths() {
+        when(queueDepthMetrics.depth("RECON.IN")).thenReturn(7);
+        when(queueDepthMetrics.depth("RECON.RETRY")).thenReturn(1);
+        when(queueDepthMetrics.depth("RECON.BACKOUT")).thenReturn(0);
+        when(queueDepthMetrics.depth("SYSTEM.DEAD.LETTER.QUEUE")).thenReturn(-1);
+
         Map<String, Object> queues = controller.queues();
 
         assertThat(queues).containsKeys("inputQueue", "retryQueue", "backoutQueue", "deadLetterQueue");
-        assertThat(queues.get("inputQueue")).isEqualTo("see mq_queue_depth metric and MQ console");
+        assertThat((Map<String, Object>) queues.get("inputQueue"))
+                .containsEntry("name", "RECON.IN")
+                .containsEntry("depth", 7)
+                .containsEntry("available", true);
+        assertThat((Map<String, Object>) queues.get("deadLetterQueue"))
+                .containsEntry("name", "SYSTEM.DEAD.LETTER.QUEUE")
+                .containsEntry("depth", -1)
+                .containsEntry("available", false);
     }
 
     private static ReconciliationTransaction transaction() {
         return new ReconciliationTransaction("txn-1", "CARD", "ACCT-1", BigDecimal.TEN, "SGD", Instant.now(), false, SimulationMode.NORMAL, Map.of());
+    }
+
+    private static ReconciliationProperties properties() {
+        return new ReconciliationProperties(
+                "RECON.IN", "RECON.RETRY", "RECON.BACKOUT", "SYSTEM.DEAD.LETTER.QUEUE", "RECON.REPLAY",
+                1, 0, 1, 1, 2, 1);
     }
 }

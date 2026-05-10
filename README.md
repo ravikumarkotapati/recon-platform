@@ -12,6 +12,10 @@ recon-local-dependencies/  Local Docker Compose dependencies
 aws-kubernetes/            EKS manifests, SQL schema, and deployment scripts
 PHASE2_RESILIENCY_RUNBOOK.md
 PHASE2_MQRC2035_FAILURE_ANALYSIS.md
+PHASE4_ARCHITECTURE_DESIGN.md
+PHASE4_NOTEBOOKLM_GAMMA_PROMPTS.md
+architecture/recon-platform-phase4.drawio
+PHASE6_OBSERVABILITY_SRE.md
 ```
 
 ## Local Build

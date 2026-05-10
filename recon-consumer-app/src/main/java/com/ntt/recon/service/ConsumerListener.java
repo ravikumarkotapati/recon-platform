@@ -1,6 +1,7 @@
 package com.ntt.recon.service;
 
 import com.ntt.recon.config.ReconciliationProperties;
+import com.ntt.recon.domain.ReconciliationStatus;
 import com.ntt.recon.domain.ReconciliationTransaction;
 import com.ntt.recon.domain.SimulationMode;
 import com.ntt.recon.exception.BackoutPublishException;
@@ -138,6 +139,7 @@ public class ConsumerListener {
         int deliveryCount = deliveryCount(message);
         int retryAttempt = retryAttempt(message);
         if (deliveryCount >= DEFAULT_BACKOUT_THRESHOLD || retryAttempt >= DEFAULT_BACKOUT_THRESHOLD - 1) {
+            reconciliationService.recordFailure(transaction, correlationId, ReconciliationStatus.FAILED, safeReason(ex));
             moveToBackout(transaction, correlationId, traceHeaders, ex);
             return;
         }

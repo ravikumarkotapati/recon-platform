@@ -72,29 +72,45 @@ data:
         {
           "id": 3,
           "type": "stat",
-          "title": "Consumer Error Rate",
+          "title": "Total Messages Published",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "targets": [{"expr": "sum(rate(recon_consumer_processing_failures_total[5m])) / clamp_min(sum(rate(recon_consumer_messages_total[5m])), 1)", "legendFormat": "error-rate"}],
+          "targets": [{"expr": "sum(recon_producer_messages_total)", "legendFormat": "published"}],
           "gridPos": {"x": 12, "y": 0, "w": 6, "h": 4}
         },
         {
           "id": 4,
           "type": "stat",
-          "title": "Deadlock Retries",
+          "title": "Total Messages Processed",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "targets": [{"expr": "sum(increase(recon_db_deadlock_retries_total[5m]))", "legendFormat": "deadlocks"}],
+          "targets": [{"expr": "sum(recon_consumer_messages_total)", "legendFormat": "processed"}],
           "gridPos": {"x": 18, "y": 0, "w": 6, "h": 4}
         },
         {
           "id": 5,
+          "type": "stat",
+          "title": "Consumer Error Rate",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [{"expr": "sum(rate(recon_consumer_processing_failures_total[5m])) / clamp_min(sum(rate(recon_consumer_messages_total[5m])), 1)", "legendFormat": "error-rate"}],
+          "gridPos": {"x": 0, "y": 4, "w": 12, "h": 4}
+        },
+        {
+          "id": 6,
+          "type": "stat",
+          "title": "Deadlock Retries",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [{"expr": "sum(increase(recon_db_deadlock_retries_total[5m]))", "legendFormat": "deadlocks"}],
+          "gridPos": {"x": 12, "y": 4, "w": 12, "h": 4}
+        },
+        {
+          "id": 7,
           "type": "timeseries",
           "title": "MQ Queue Depth",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "targets": [{"expr": "mq_queue_depth", "legendFormat": "{{queue}}"}],
-          "gridPos": {"x": 0, "y": 4, "w": 12, "h": 8}
+          "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8}
         },
         {
-          "id": 6,
+          "id": 8,
           "type": "timeseries",
           "title": "Retry and Backout Messages",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
@@ -103,23 +119,23 @@ data:
             {"expr": "sum(increase(recon_backout_messages_total[5m]))", "legendFormat": "backout"},
             {"expr": "sum(increase(recon_dead_letter_messages_total[5m]))", "legendFormat": "dead-letter"}
           ],
-          "gridPos": {"x": 12, "y": 4, "w": 12, "h": 8}
+          "gridPos": {"x": 12, "y": 8, "w": 12, "h": 8}
         },
         {
-          "id": 7,
+          "id": 9,
           "type": "timeseries",
           "title": "Application Availability",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "targets": [{"expr": "up{namespace=\"recon-platform\"}", "legendFormat": "{{app}}/{{pod}}"}],
-          "gridPos": {"x": 0, "y": 12, "w": 12, "h": 8}
+          "gridPos": {"x": 0, "y": 16, "w": 12, "h": 8}
         },
         {
-          "id": 8,
+          "id": 10,
           "type": "timeseries",
           "title": "HTTP Server Request Latency p95",
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "targets": [{"expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket[5m])) by (le, app, uri))", "legendFormat": "{{app}} {{uri}}"}],
-          "gridPos": {"x": 12, "y": 12, "w": 12, "h": 8}
+          "gridPos": {"x": 12, "y": 16, "w": 12, "h": 8}
         }
       ]
     }

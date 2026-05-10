@@ -3,6 +3,8 @@ package com.ntt.recon.api;
 import com.ntt.recon.domain.ReconciliationRecord;
 import com.ntt.recon.domain.ReconciliationStatus;
 import com.ntt.recon.domain.ReconciliationTransaction;
+import com.ntt.recon.config.ReconciliationProperties;
+import com.ntt.recon.observability.QueueDepthMetrics;
 import com.ntt.recon.repository.ReconciliationRepository;
 import com.ntt.recon.service.ReplayService;
 import org.springframework.data.domain.Page;
@@ -22,10 +24,17 @@ import java.util.Map;
 public class ReconciliationController {
     private final ReconciliationRepository repository;
     private final ReplayService replayService;
+    private final ReconciliationProperties properties;
+    private final QueueDepthMetrics queueDepthMetrics;
 
-    public ReconciliationController(ReconciliationRepository repository, ReplayService replayService) {
+    public ReconciliationController(ReconciliationRepository repository,
+                                    ReplayService replayService,
+                                    ReconciliationProperties properties,
+                                    QueueDepthMetrics queueDepthMetrics) {
         this.repository = repository;
         this.replayService = replayService;
+        this.properties = properties;
+        this.queueDepthMetrics = queueDepthMetrics;
     }
 
     @GetMapping("/reconciliation/status")
@@ -51,10 +60,10 @@ public class ReconciliationController {
     @GetMapping("/reconciliation/queues")
     public Map<String, Object> queues() {
         return Map.of(
-                "inputQueue", "see mq_queue_depth metric and MQ console",
-                "retryQueue", "see mq_queue_depth metric and MQ console",
-                "backoutQueue", "see mq_queue_depth metric and MQ console",
-                "deadLetterQueue", "see mq_queue_depth metric and MQ console"
+                "inputQueue", queueStatus(properties.inputQueue()),
+                "retryQueue", queueStatus(properties.retryQueue()),
+                "backoutQueue", queueStatus(properties.backoutQueue()),
+                "deadLetterQueue", queueStatus(properties.deadLetterQueue())
         );
     }
 
@@ -65,5 +74,14 @@ public class ReconciliationController {
     }
 
     public record ReplayRequest(String originalCorrelationId, ReconciliationTransaction transaction) {
+    }
+
+    private Map<String, Object> queueStatus(String queueName) {
+        int depth = queueDepthMetrics.depth(queueName);
+        return Map.of(
+                "name", queueName,
+                "depth", depth,
+                "available", depth >= 0
+        );
     }
 }

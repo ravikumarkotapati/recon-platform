@@ -15,6 +15,7 @@ import org.springframework.dao.DeadlockLoserDataAccessException;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.Map;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -117,6 +118,39 @@ class ReconciliationServiceTest {
         assertThatThrownBy(() -> service.degrade(validTransaction("txn-degrade"), "corr-degrade", new RuntimeException("circuit open")))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("Database circuit is open");
+    }
+
+    @Test
+    void recordsTechnicalFailureForFailedTransactionView() {
+        ReconciliationTransaction transaction = validTransaction("txn-failed");
+        when(repository.findByCorrelationId("corr-failed")).thenReturn(Optional.empty());
+
+        service.recordFailure(transaction, "corr-failed", ReconciliationStatus.FAILED, "Retries exhausted");
+
+        ArgumentCaptor<ReconciliationRecord> captor = ArgumentCaptor.forClass(ReconciliationRecord.class);
+        verify(repository).saveAndFlush(captor.capture());
+        assertThat(captor.getValue().getCorrelationId()).isEqualTo("corr-failed");
+        assertThat(captor.getValue().getStatus()).isEqualTo(ReconciliationStatus.FAILED);
+        assertThat(captor.getValue().getFailureReason()).isEqualTo("Retries exhausted");
+    }
+
+    @Test
+    void recordsFailureOnExistingRecord() {
+        ReconciliationRecord existing = ReconciliationRecord.from(validTransaction("txn-existing"), "corr-existing");
+        when(repository.findByCorrelationId("corr-existing")).thenReturn(Optional.of(existing));
+
+        service.recordFailure(validTransaction("txn-existing"), "corr-existing", ReconciliationStatus.FAILED, "Backout");
+
+        verify(repository).saveAndFlush(existing);
+        assertThat(existing.getStatus()).isEqualTo(ReconciliationStatus.FAILED);
+        assertThat(existing.getFailureReason()).isEqualTo("Backout");
+    }
+
+    @Test
+    void skipsFailurePersistenceForNullPoisonPayload() {
+        service.recordFailure(null, "corr-null", ReconciliationStatus.FAILED, "Null payload");
+
+        verify(repository, never()).saveAndFlush(any(ReconciliationRecord.class));
     }
 
     private static ReconciliationProperties props() {
