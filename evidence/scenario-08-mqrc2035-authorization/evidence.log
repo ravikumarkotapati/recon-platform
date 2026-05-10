@@ -1,0 +1,30 @@
+SCENARIO 08 - MQRC 2035 AUTHORIZATION FAILURE
+Executed: 2026-05-10T21:13:54+08:00
+Purpose: Demonstrate IBM MQ authorization failure handling without changing the real application credentials.
+
+Simulation method:
+- Started a temporary pod: recon-mqrc2035-simulator
+- Used the real producer container image: 860510876120.dkr.ecr.ap-southeast-1.amazonaws.com/recon-producer-app:2c91e30b8171
+- Disabled AWS Secrets Manager for that temporary pod only: AWS_SECRETS_ENABLED=false
+- Injected an intentionally wrong MQ password: MQ_PASSWORD=wrong-password-for-mqrc2035
+- Targeted real IBM MQ service: ibm-mq.recon-platform.svc.cluster.local(1414)
+
+Expected failure:
+- IBM MQ rejects the client connection because authentication is invalid.
+- Application logs classify the failure as MQRC 2035 / MQRC_NOT_AUTHORIZED.
+- Real producer, consumer, dashboard, and IBM MQ remain healthy.
+
+MQRC 2035 proof:
+JMSWMQ2013: security authentication was not valid for queue manager QM1; IBM MQ reason 2035 MQRC_NOT_AUTHORIZED.
+traceId=431cd1d4a40f505ccb5d7b1aa282c06a
+spanId=7b9bef29edb77fc3
+
+Operational proof:
+- Temporary simulator pod was deleted after evidence capture.
+- Real reconciliation workloads after cleanup:
+NAME                                  READY   STATUS    RESTARTS   AGE
+ibm-mq-0                              1/1     Running   0          3h49m
+recon-consumer-app-5d49c49f77-vl4pq   1/1     Running   0          23m
+recon-dashboard-api-bccff54c9-9xjzd   1/1     Running   0          23m
+recon-producer-app-6b87bb5b55-pnvzc   1/1     Running   0          11m
+

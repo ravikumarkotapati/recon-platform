@@ -1,0 +1,607 @@
+
+==========================================================================================
+SCENARIO 03 - DATABASE DEADLOCK, RETRY/BACKOUT, CIRCUIT BREAKER, RECOVERY
+==========================================================================================
+StartedAt=2026-05-10T17:13:38.8051357+08:00
+Expected proof: simulated database deadlocks, retry/backout routing, circuit breaker protection, recovery after reset.
+
+==========================================================================================
+PODS BEFORE SCENARIO
+==========================================================================================
+COMMAND: kubectl get pods -n recon-platform -o wide
+NAME                                   READY   STATUS    RESTARTS   AGE   IP               NODE                                                NOMINATED NODE   READINESS GATES
+ibm-mq-0                               1/1     Running   0          92m   192.168.26.214   ip-192-168-23-26.ap-southeast-1.compute.internal    <none>           <none>
+recon-consumer-app-784f77dff8-ktzvg    1/1     Running   0          82m   192.168.41.165   ip-192-168-59-106.ap-southeast-1.compute.internal   <none>           <none>
+recon-dashboard-api-7c7dcc4768-4vprs   1/1     Running   0          82m   192.168.75.43    ip-192-168-90-90.ap-southeast-1.compute.internal    <none>           <none>
+recon-producer-app-7878df768-p65k4     1/1     Running   0          82m   192.168.41.193   ip-192-168-59-106.ap-southeast-1.compute.internal   <none>           <none>
+
+==========================================================================================
+DEPLOYMENTS BEFORE SCENARIO
+==========================================================================================
+COMMAND: kubectl get deployments -n recon-platform
+NAME                  READY   UP-TO-DATE   AVAILABLE   AGE
+recon-consumer-app    1/1     1            1           43h
+recon-dashboard-api   1/1     1            1           43h
+recon-producer-app    1/1     1            1           43h
+
+==========================================================================================
+PORT FORWARD HEALTH
+==========================================================================================
+ProducerForwardReady=True
+DashboardForwardReady=True
+
+==========================================================================================
+BASELINE STATUS BEFORE DEADLOCK
+==========================================================================================
+REQUEST: Get http://localhost:28083/api/reconciliation/status
+{
+  "failed": 330,
+  "total": 14234,
+  "reconciled": 12516,
+  "invalid": 1388,
+  "dlq": 0
+}
+
+==========================================================================================
+RESET SIMULATION TO NORMAL BEFORE START
+==========================================================================================
+REQUEST: Post http://localhost:28081/api/simulation/reset
+{
+  "mode": "NORMAL",
+  "availableModes": [
+    "NORMAL",
+    "DB_DEADLOCK",
+    "MQ_OUTAGE",
+    "CONSUMER_CRASH",
+    "SLOW_DATABASE",
+    "DUPLICATE_MESSAGE"
+  ]
+}
+
+==========================================================================================
+ENABLE DB_DEADLOCK SIMULATION
+==========================================================================================
+REQUEST: Put http://localhost:28081/api/simulation/DB_DEADLOCK
+{
+  "mode": "DB_DEADLOCK",
+  "availableModes": [
+    "NORMAL",
+    "DB_DEADLOCK",
+    "MQ_OUTAGE",
+    "CONSUMER_CRASH",
+    "SLOW_DATABASE",
+    "DUPLICATE_MESSAGE"
+  ]
+}
+
+==========================================================================================
+CONFIRM SIMULATION MODE
+==========================================================================================
+REQUEST: Get http://localhost:28081/api/simulation
+{
+  "mode": "DB_DEADLOCK",
+  "availableModes": [
+    "NORMAL",
+    "DB_DEADLOCK",
+    "MQ_OUTAGE",
+    "CONSUMER_CRASH",
+    "SLOW_DATABASE",
+    "DUPLICATE_MESSAGE"
+  ]
+}
+
+==========================================================================================
+WAIT WINDOW
+==========================================================================================
+Waiting 180 seconds so producer sends messages and consumer exercises deadlock retries, retry/backout paths, and circuit breaker.
+
+==========================================================================================
+STATUS DURING DB_DEADLOCK
+==========================================================================================
+REQUEST: Get http://localhost:28083/api/reconciliation/status
+{
+  "failed": 694,
+  "total": 14618,
+  "reconciled": 12530,
+  "invalid": 1394,
+  "dlq": 0
+}
+
+==========================================================================================
+QUEUE DEPTH DURING DB_DEADLOCK
+==========================================================================================
+REQUEST: Get http://localhost:28083/api/reconciliation/queues
+{
+  "inputQueue": {
+    "available": true,
+    "depth": 0,
+    "name": "RECON.IN"
+  },
+  "deadLetterQueue": {
+    "available": true,
+    "depth": 0,
+    "name": "SYSTEM.DEAD.LETTER.QUEUE"
+  },
+  "retryQueue": {
+    "available": true,
+    "depth": 0,
+    "name": "RECON.RETRY"
+  },
+  "backoutQueue": {
+    "available": true,
+    "depth": 696,
+    "name": "RECON.BACKOUT"
+  }
+}
+
+==========================================================================================
+FAILED TRANSACTIONS DURING DB_DEADLOCK
+==========================================================================================
+REQUEST: Get http://localhost:28083/api/reconciliation/failed?page=0&size=10
+{
+  "content": [
+    {
+      "id": "eb4f9d33-3712-4c48-95bd-fb01d3d6aa95",
+      "transactionId": "txn-a72d8615-4f85-44e0-93af-799ecfb98911",
+      "correlationId": "7da472e5-a3e9-4091-abe4-ca1e83374356",
+      "status": "INVALID",
+      "failureReason": "Invalid transaction payload",
+      "retryCount": 0,
+      "updatedAt": "2026-05-09T04:53:28.343169Z"
+    },
+    {
+      "id": "4614b6a5-f925-4238-955d-7e399f53355e",
+      "transactionId": "txn-69013fd9-8a1b-4cb0-ba11-763d42593541",
+      "correlationId": "8eaf1f48-06ea-4c9a-9180-b3106e169024",
+      "status": "INVALID",
+      "failureReason": "Invalid transaction payload",
+      "retryCount": 0,
+      "updatedAt": "2026-05-09T04:53:28.338214Z"
+    },
+    {
+      "id": "67230a57-a39a-47e8-9b65-254c66b53bf3",
+      "transactionId": "txn-b3f42227-0373-4389-8081-44402e45484d",
+      "correlationId": "f6ab336e-1e18-4fed-b31a-566977a50f35",
+      "status": "INVALID",
+      "failureReason": "Invalid transaction payload",
+      "retryCount": 0,
+      "updatedAt": "2026-05-09T04:53:28.89122Z"
+    },
+    {
+      "id": "f1fb369f-41e8-4e13-b4d2-4dc0300b04fd",
+      "transactionId": "txn-7898008f-5a87-4eee-ae04-57480edbd9f4",
+      "correlationId": "19780008-cd5f-495b-a893-4b8702e40afd",
+      "status": "INVALID",
+      "failureReason": "Invalid transaction payload",
+      "retryCount": 0,
+      "updatedAt": "2026-05-09T04:53:28.955281Z"
+    },
+    {
+      "id": "0e3c15de-ebd2-4c7e-b5cb-e24ba3f2864d",
+      "transactionId": "txn-12a2459d-8a74-4f7a-9efa-6a6cedd89403",
+      "correlationId": "945e8ca2-7a4a-4b87-8656-0184f4555741",
+      "status": "INVALID",
+      "failureReason": "Invalid transaction payload",
+      "retryCount": 0,
+      "updatedAt": "2026-05-09T04:53:29.211305Z"
+    },
+    {
+      "id": "f8ce02aa-8ef2-4e17-8ee3-aafb08fae423",
+      "transactionId": "txn-640c4758-dfdc-42b7-93b0-43c41f494979",
+      "correlationId": "4978f807-9929-4df0-a52b-1b68c1ff3dfd",
+      "status": "INVALID",
+      "failureReason": "Invalid transaction payload",
+      "retryCount": 0,
+      "updatedAt": "2026-05-09T04:53:29.788561Z"
+    },
+    {
+      "id": "9c74ea86-53f5-40d7-89a2-b08ce100055b",
+      "transactionId": "txn-152a58c7-54cf-4f6f-b2f0-3a296867832f",
+      "correlationId": "6e511ba2-6ff2-4256-a215-037374a6dcc0",
+      "status": "INVALID",
+      "failureReason": "Invalid transaction payload",
+      "retryCount": 0,
+      "updatedAt": "2026-05-09T05:03:39.928542Z"
+    },
+    {
+      "id": "e6ba85b0-7a26-45d2-ae33-2c657c39a871",
+      "transactionId": "txn-471efe85-3882-4939-9582-19637fc597c8",
+      "correlationId": "3bed207d-7ba4-4d58-8e65-2c5118cfa8e4",
+      "status": "INVALID",
+      "failureReason": "Invalid transaction payload",
+      "retryCount": 0,
+      "updatedAt": "2026-05-09T05:16:17.926065Z"
+    },
+    {
+      "id": "adfa0e19-b57e-4cfd-8298-4e0adf53897c",
+      "transactionId": "txn-dd6d6332-f24b-41f8-bbe7-9e6f51e793bc",
+      "correlationId": "749153a2-cf80-41b0-a49e-e139fb024d58",
+      "status": "INVALID",
+      "failureReason": "Invalid transaction payload",
+      "retryCount": 0,
+      "updatedAt": "2026-05-09T05:16:21.9271Z"
+    },
+    {
+      "id": "fe2a6bb7-a9c0-4040-883e-b919fcf8b372",
+      "transactionId": "txn-12ab56e9-be4a-4369-9131-65422cdeee47",
+      "correlationId": "ac738076-2aef-4224-8bbd-a237f8656c83",
+      "status": "INVALID",
+      "failureReason": "Invalid transaction payload",
+      "retryCount": 0,
+      "updatedAt": "2026-05-09T05:16:25.928533Z"
+    }
+  ],
+  "pageable": {
+    "pageNumber": 0,
+    "pageSize": 10,
+    "sort": {
+      "unsorted": true,
+      "sorted": false,
+      "empty": true
+    },
+    "offset": 0,
+    "unpaged": false,
+    "paged": true
+  },
+  "totalPages": 209,
+  "totalElements": 2090,
+  "last": false,
+  "numberOfElements": 10,
+  "first": true,
+  "size": 10,
+  "number": 0,
+  "sort": {
+    "unsorted": true,
+    "sorted": false,
+    "empty": true
+  },
+  "empty": false
+}
+
+==========================================================================================
+RESET SIMULATION TO NORMAL FOR RECOVERY
+==========================================================================================
+REQUEST: Post http://localhost:28081/api/simulation/reset
+{
+  "mode": "NORMAL",
+  "availableModes": [
+    "NORMAL",
+    "DB_DEADLOCK",
+    "MQ_OUTAGE",
+    "CONSUMER_CRASH",
+    "SLOW_DATABASE",
+    "DUPLICATE_MESSAGE"
+  ]
+}
+
+==========================================================================================
+RECOVERY WAIT WINDOW
+==========================================================================================
+Waiting 60 seconds after reset so circuit breaker open window can close and normal processing can resume.
+
+==========================================================================================
+STATUS AFTER RECOVERY
+==========================================================================================
+REQUEST: Get http://localhost:28083/api/reconciliation/status
+{
+  "failed": 726,
+  "total": 14744,
+  "reconciled": 12620,
+  "invalid": 1398,
+  "dlq": 0
+}
+
+==========================================================================================
+QUEUE DEPTH AFTER RECOVERY
+==========================================================================================
+REQUEST: Get http://localhost:28083/api/reconciliation/queues
+{
+  "inputQueue": {
+    "available": true,
+    "depth": 0,
+    "name": "RECON.IN"
+  },
+  "deadLetterQueue": {
+    "available": true,
+    "depth": 0,
+    "name": "SYSTEM.DEAD.LETTER.QUEUE"
+  },
+  "retryQueue": {
+    "available": true,
+    "depth": 0,
+    "name": "RECON.RETRY"
+  },
+  "backoutQueue": {
+    "available": true,
+    "depth": 726,
+    "name": "RECON.BACKOUT"
+  }
+}
+
+==========================================================================================
+CONFIRM SIMULATION RESET TO NORMAL
+==========================================================================================
+REQUEST: Get http://localhost:28081/api/simulation
+{
+  "mode": "NORMAL",
+  "availableModes": [
+    "NORMAL",
+    "DB_DEADLOCK",
+    "MQ_OUTAGE",
+    "CONSUMER_CRASH",
+    "SLOW_DATABASE",
+    "DUPLICATE_MESSAGE"
+  ]
+}
+
+==========================================================================================
+PORT FORWARD OUTPUT
+==========================================================================================
+Producer port-forward stdout:
+Forwarding from 127.0.0.1:28081 -> 8081
+Forwarding from [::1]:28081 -> 8081
+Handling connection for 28081
+Handling connection for 28081
+Handling connection for 28081
+Handling connection for 28081
+Handling connection for 28081
+Handling connection for 28081
+Producer port-forward stderr:
+Dashboard port-forward stdout:
+Forwarding from 127.0.0.1:28083 -> 8083
+Forwarding from [::1]:28083 -> 8083
+Handling connection for 28083
+Handling connection for 28083
+Handling connection for 28083
+Handling connection for 28083
+Handling connection for 28083
+Handling connection for 28083
+Handling connection for 28083
+Dashboard port-forward stderr:
+
+==========================================================================================
+CONSUMER LOG PROOF - DEADLOCK RETRY BACKOUT CIRCUIT
+==========================================================================================
+COMMAND: kubectl logs -n recon-platform deploy/recon-consumer-app --since=20m | Select-String -Pattern 'Simulated database deadlock|database_deadlock|deadlock retry|message_moved_to_retry|message_moved_to_backout|database_circuit_open|CircuitBreaker|circuit breaker|Database circuit is open|CallNotPermittedException' | Select-Object -First 160
+
+{"@timestamp":"2026-05-10T09:18:06.062976128Z","@version":"1","message":"Created or retrieved circuit breaker 'databaseCircuitBreaker' with failure rate '50.0' for method: 'com.ntt.recon.service.ReconciliationService#reconcileWithRetry'","logger_name":"io.github.resilience4j.spring6.circuitbreaker.configure.CircuitBreakerAspect","thread_name":"org.springframework.jms.JmsListenerEndpointContainer#1-4","level":"DEBUG","level_value":10000,"appName":"recon-consumer-app","traceId":"4d776512808f3c13b960b815a428240c","spanId":"d75fdd27fa5d057c","correlationId":"3eb5e286-2ff5-4f5d-b7df-e6d5a078e8d2","application":"recon-consumer-app"}
+{"@timestamp":"2026-05-10T09:18:06.066903176Z","@version":"1","message":"Created or retrieved circuit breaker 'databaseCircuitBreaker' with failure rate '50.0' for method: 'com.ntt.recon.service.ReconciliationService#reconcileWithRetry'","logger_name":"io.github.resilience4j.spring6.circuitbreaker.configure.CircuitBreakerAspect","thread_name":"org.springframework.jms.JmsListenerEndpointContainer#1-5","level":"DEBUG","level_value":10000,"appName":"recon-consumer-app","traceId":"4d776512808f3c13b960b815a428240c","spanId":"d75fdd27fa5d057c","correlationId":"2cd9a893-0b80-4ad9-84e3-39c537d8dae9","application":"recon-consumer-app"}
+{"@timestamp":"2026-05-10T09:18:06.072530505Z","@version":"1","message":"CircuitBreaker 'databaseCircuitBreaker' succeeded:","logger_name":"io.github.resilience4j.circuitbreaker.internal.CircuitBreakerStateMachine","thread_name":"org.springframework.jms.JmsListenerEndpointContainer#1-4","level":"DEBUG","level_value":10000,"appName":"recon-consumer-app","traceId":"4d776512808f3c13b960b815a428240c","spanId":"d75fdd27fa5d057c","correlationId":"3eb5e286-2ff5-4f5d-b7df-e6d5a078e8d2","application":"recon-consumer-app"}
+{"@timestamp":"2026-05-10T09:18:06.072561487Z","@version":"1","message":"Event SUCCESS published: 2026-05-10T09:18:06.072554483Z[GMT]: CircuitBreaker 'databaseCircuitBreaker' recorded a successful call. Elapsed time: 9 ms","logger_name":"io.github.resilience4j.circuitbreaker.internal.CircuitBreakerStateMachine","thread_name":"org.springframework.jms.JmsListenerEndpointContainer#1-4","level":"DEBUG","level_value":10000,"appName":"recon-consumer-app","traceId":"4d776512808f3c13b960b815a428240c","spanId":"d75fdd27fa5d057c","correlationId":"3eb5e286-2ff5-4f5d-b7df-e6d5a078e8d2","application":"recon-consumer-app"}
+{"@timestamp":"2026-05-10T09:18:06.074602356Z","@version":"1","message":"CircuitBreaker 'databaseCircuitBreaker' succeeded:","logger_name":"io.github.resilience4j.circuitbreaker.internal.CircuitBreakerStateMachine","thread_name":"org.springframework.jms.JmsListenerEndpointContainer#1-5","level":"DEBUG","level_value":10000,"appName":"recon-consumer-app","traceId":"4d776512808f3c13b960b815a428240c","spanId":"d75fdd27fa5d057c","correlationId":"2cd9a893-0b80-4ad9-84e3-39c537d8dae9","application":"recon-consumer-app"}
+{"@timestamp":"2026-05-10T09:18:06.07462689Z","@version":"1","message":"Event SUCCESS published: 2026-05-10T09:18:06.074620127Z[GMT]: CircuitBreaker 'databaseCircuitBreaker' recorded a successful call. Elapsed time: 7 ms","logger_name":"io.github.resilience4j.circuitbreaker.internal.CircuitBreakerStateMachine","thread_name":"org.springframework.jms.JmsListenerEndpointContainer#1-5","level":"DEBUG","level_value":10000,"appName":"recon-consumer-app","traceId":"4d776512808f3c13b960b815a428240c","spanId":"d75fdd27fa5d057c","correlationId":"2cd9a893-0b80-4ad9-84e3-39c537d8dae9","application":"recon-consumer-app"}
+{"@timestamp":"2026-05-10T09:18:07.060372353Z","@version":"1","message":"Created or retrieved circuit breaker 'databaseCircuitBreaker' with failure rate '50.0' for method: 'com.ntt.recon.service.ReconciliationService#reconcileWithRetry'","logger_name":"io.github.resilience4j.spring6.circuitbreaker.configure.CircuitBreakerAspect","thread_name":"org.springframework.jms.JmsListenerEndpointContainer#1-8","level":"DEBUG","level_value":10000,"appName":"recon-consumer-app","traceId":"ae31252bfacceaacf316b3b3f7fbd983","spanId":"2c97c976b7c4c19b","correlationId":"1889c188-da8f-430f-8760-1edea3badb10","application":"recon-consumer-app"}
+{"@timestamp":"2026-05-10T09:18:07.064905017Z","@version":"1","message":"Created or retrieved circuit breaker 'databaseCircuitBreaker' with failure rate '50.0' for method: 'com.ntt.recon.service.ReconciliationService#reconcileWithRetry'","logger_name":"io.github.resilience4j.spring6.circuitbreaker.configure.CircuitBreakerAspect","thread_name":"org.springframework.jms.JmsListenerEndpointContainer#1-2","level":"DEBUG","level_value":10000,"appName":"recon-consumer-app","traceId":"ae31252bfacceaacf316b3b3f7fbd983","spanId":"2c97c976b7c4c19b","correlationId":"a8e32b07-b10f-40da-af98-90a05556dbdf","application":"recon-consumer-app"}
+{"@timestamp":"2026-05-10T09:18:07.067548882Z","@version":"1","message":"CircuitBreaker 'databaseCircuitBreaker' succeeded:","logger_name":"io.github.resilience4j.circuitbreaker.internal.CircuitBreakerStateMachine","thread_name":"org.springframework.jms.JmsListenerEndpointContainer#1-8","level":"DEBUG","level_value":10000,"appName":"recon-consumer-app","traceId":"ae31252bfacceaacf316b3b3f7fbd983","spanId":"2c97c976b7c4c19b","correlationId":"1889c188-da8f-430f-8760-1edea3badb10","application":"recon-consumer-app"}
+{"@timestamp":"2026-05-10T09:18:07.067581202Z","@version":"1","message":"Event SUCCESS published: 2026-05-10T09:18:07.067574166Z[GMT]: CircuitBreaker 'databaseCircuitBreaker' recorded a successful call. Elapsed time: 7 ms","logger_name":"io.github.resilience4j.circuitbreaker.internal.CircuitBreakerStateMachine","thread_name":"org.springframework.jms.JmsListenerEndpointContainer#1-8","level":"DEBUG","level_value":10000,"appName":"recon-consumer-app","traceId":"ae31252bfacceaacf316b3b3f7fbd983","spanId":"2c97c976b7c4c19b","correlationId":"1889c188-da8f-430f-8760-1edea3badb10","application":"recon-consumer-app"}
+{"@timestamp":"2026-05-10T09:18:07.071261978Z","@version":"1","message":"CircuitBreaker 'databaseCircuitBreaker' succeeded:","logger_name":"io.github.resilience4j.circuitbreaker.internal.CircuitBreakerStateMachine","thread_name":"org.springframework.jms.JmsListenerEndpointContainer#1-2","level":"DEBUG","level_value":10000,"appName":"recon-consumer-app","traceId":"ae31252bfacceaacf316b3b3f7fbd983","spanId":"2c97c976b7c4c19b","correlationId":"a8e32b07-b10f-40da-af98-90a05556dbdf","application":"recon-consumer-app"}
+{"@timestamp":"2026-05-10T09:18:07.07128252Z","@version":"1","message":"Event SUCCESS published: 2026-05-10T09:18:07.071276458Z[GMT]: CircuitBreaker 'databaseCircuitBreaker' recorded a successful call. Elapsed time: 6 ms","logger_name":"io.github.resilience4j.circuitbreaker.internal.CircuitBreakerStateMachine","thread_name":"org.springframework.jms.JmsListenerEndpointContainer#1-2","level":"DEBUG","level_value":10000,"appName":"recon-consumer-app","traceId":"ae31252bfacceaacf316b3b3f7fbd983","spanId":"2c97c976b7c4c19b","correlationId":"a8e32b07-b10f-40da-af98-90a05556dbdf","application":"recon-consumer-app"}
+{"@timestamp":"2026-05-10T09:18:08.060534766Z","@version":"1","message":"Created or retrieved circuit breaker 'databaseCircuitBreaker' with failure rate '50.0' for method: 'com.ntt.recon.service.ReconciliationService#reconcileWithRetry'","logger_name":"io.github.resilience4j.spring6.circuitbreaker.configure.CircuitBreakerAspect","thread_name":"org.springframework.jms.JmsListenerEndpointContainer#1-6","level":"DEBUG","level_value":10000,"appName":"recon-consumer-app","traceId":"2646b33dd00e5d51fa2212dc3e502836","spanId":"f993dcf247a71b60","correlationId":"79b43f9d-17a5-4fab-b0f1-4efc03476e45","application":"recon-consumer-app"}
+{"@timestamp":"2026-05-10T09:18:08.065554969Z","@version":"1","message":"Created or retrieved circuit breaker 'databaseCircuitBreaker' with failure rate '50.0' for method: 'com.ntt.recon.service.ReconciliationService#reconcileWithRetry'","logger_name":"io.github.resilience4j.spring6.circuitbreaker.configure.CircuitBreakerAspect","thread_name":"org.springframework.jms.JmsListenerEndpointContainer#1-7","level":"DEBUG","level_value":10000,"appName":"recon-consumer-app","traceId":"2646b33dd00e5d51fa2212dc3e502836","spanId":"f993dcf247a71b60","correlationId":"2e7459ad-ee7a-47d6-9313-5a27c07f8593","application":"recon-consumer-app"}
+{"@timestamp":"2026-05-10T09:18:08.067576702Z","@version":"1","message":"CircuitBreaker 'databaseCircuitBreaker' succeeded:","logger_name":"io.github.resilience4j.circuitbreaker.internal.CircuitBreakerStateMachine","thread_name":"org.springframework.jms.JmsListenerEndpointContainer#1-6","level":"DEBUG","level_value":10000,"appName":"recon-consumer-app","traceId":"2646b33dd00e5d51fa2212dc3e502836","spanId":"f993dcf247a71b60","correlationId":"79b43f9d-17a5-4fab-b0f1-4efc03476e45","application":"recon-consumer-app"}
+{"@timestamp":"2026-05-10T09:18:08.067632776Z","@version":"1","message":"Event SUCCESS published: 2026-05-10T09:18:08.067593919Z[GMT]: CircuitBreaker 'databaseCircuitBreaker' recorded a successful call. Elapsed time: 7 ms","logger_name":"io.github.resilience4j.circuitbreaker.internal.CircuitBreakerStateMachine","thread_name":"org.springframework.jms.JmsListenerEndpointContainer#1-6","level":"DEBUG","level_value":10000,"appName":"recon-consumer-app","traceId":"2646b33dd00e5d51fa2212dc3e502836","spanId":"f993dcf247a71b60","correlationId":"79b43f9d-17a5-4fab-b0f1-4efc03476e45","application":"recon-consumer-app"}
+{"@timestamp":"2026-05-10T09:18:08.072494078Z","@version":"1","message":"CircuitBreaker 'databaseCircuitBreaker' succeeded:","logger_name":"io.github.resilience4j.circuitbreaker.internal.CircuitBreakerStateMachine","thread_name":"org.springframework.jms.JmsListenerEndpointContainer#1-7","level":"DEBUG","level_value":10000,"appName":"recon-consumer-app","traceId":"2646b33dd00e5d51fa2212dc3e502836","spanId":"f993dcf247a71b60","correlationId":"2e7459ad-ee7a-47d6-9313-5a27c07f8593","application":"recon-consumer-app"}
+{"@timestamp":"2026-05-10T09:18:08.072514578Z","@version":"1","message":"Event SUCCESS published: 2026-05-10T09:18:08.072507581Z[GMT]: CircuitBreaker 'databaseCircuitBreaker' recorded a successful call. Elapsed time: 6 ms","logger_name":"io.github.resilience4j.circuitbreaker.internal.CircuitBreakerStateMachine","thread_name":"org.springframework.jms.JmsListenerEndpointContainer#1-7","level":"DEBUG","level_value":10000,"appName":"recon-consumer-app","traceId":"2646b33dd00e5d51fa2212dc3e502836","spanId":"f993dcf247a71b60","correlationId":"2e7459ad-ee7a-47d6-9313-5a27c07f8593","application":"recon-consumer-app"}
+{"@timestamp":"2026-05-10T09:18:09.060239594Z","@version":"1","message":"Created or retrieved circuit breaker 'databaseCircuitBreaker' with failure rate '50.0' for method: 'com.ntt.recon.service.ReconciliationService#reconcileWithRetry'","logger_name":"io.github.resilience4j.spring6.circuitbreaker.configure.CircuitBreakerAspect","thread_name":"org.springframework.jms.JmsListenerEndpointContainer#1-3","level":"DEBUG","level_value":10000,"appName":"recon-consumer-app","traceId":"a8d996a8d5b9211facbfd50e0b143286","spanId":"ce1a3bdf9c08c1f2","correlationId":"83918b79-fc8a-45f2-9ae3-437f8f2e7633","application":"recon-consumer-app"}
+{"@timestamp":"2026-05-10T09:18:09.064886017Z","@version":"1","message":"Created or retrieved circuit breaker 'databaseCircuitBreaker' with failure rate '50.0' for method: 'com.ntt.recon.service.ReconciliationService#reconcileWithRetry'","logger_name":"io.github.resilience4j.spring6.circuitbreaker.configure.CircuitBreakerAspect","thread_name":"org.springframework.jms.JmsListenerEndpointContainer#1-1","level":"DEBUG","level_value":10000,"appName":"recon-consumer-app","traceId":"a8d996a8d5b9211facbfd50e0b143286","spanId":"ce1a3bdf9c08c1f2","correlationId":"ef93a312-edc4-49f3-907a-f923bb28b374","application":"recon-consumer-app"}
+{"@timestamp":"2026-05-10T09:18:09.070209698Z","@version":"1","message":"CircuitBreaker 'databaseCircuitBreaker' succeeded:","logger_name":"io.github.resilience4j.circuitbreaker.internal.CircuitBreakerStateMachine","thread_name":"org.springframework.jms.JmsListenerEndpointContainer#1-3","level":"DEBUG","level_value":10000,"appName":"recon-consumer-app","traceId":"a8d996a8d5b9211facbfd50e0b143286","spanId":"ce1a3bdf9c08c1f2","correlationId":"83918b79-fc8a-45f2-9ae3-437f8f2e7633","application":"recon-consumer-app"}
+{"@timestamp":"2026-05-10T09:18:09.07022836Z","@version":"1","message":"Event SUCCESS published: 2026-05-10T09:18:09.070222749Z[GMT]: CircuitBreaker 'databaseCircuitBreaker' recorded a successful call. Elapsed time: 9 ms","logger_name":"io.github.resilience4j.circuitbreaker.internal.CircuitBreakerStateMachine","thread_name":"org.springframework.jms.JmsListenerEndpointContainer#1-3","level":"DEBUG","level_value":10000,"appName":"recon-consumer-app","traceId":"a8d996a8d5b9211facbfd50e0b143286","spanId":"ce1a3bdf9c08c1f2","correlationId":"83918b79-fc8a-45f2-9ae3-437f8f2e7633","application":"recon-consumer-app"}
+{"@timestamp":"2026-05-10T09:18:09.070933226Z","@version":"1","message":"CircuitBreaker 'databaseCircuitBreaker' succeeded:","logger_name":"io.github.resilience4j.circuitbreaker.internal.CircuitBreakerStateMachine","thread_name":"org.springframework.jms.JmsListenerEndpointContainer#1-1","level":"DEBUG","level_value":10000,"appName":"recon-consumer-app","traceId":"a8d996a8d5b9211facbfd50e0b143286","spanId":"ce1a3bdf9c08c1f2","correlationId":"ef93a312-edc4-49f3-907a-f923bb28b374","application":"recon-consumer-app"}
+{"@timestamp":"2026-05-10T09:18:09.070985125Z","@version":"1","message":"Event SUCCESS published: 2026-05-10T09:18:09.070944176Z[GMT]: CircuitBreaker 'databaseCircuitBreaker' recorded a successful call. Elapsed time: 6 ms","logger_name":"io.github.resilience4j.circuitbreaker.internal.CircuitBreakerStateMachine","thread_name":"org.springframework.jms.JmsListenerEndpointContainer#1-1","level":"DEBUG","level_value":10000,"appName":"recon-consumer-app","traceId":"a8d996a8d5b9211facbfd50e0b143286","spanId":"ce1a3bdf9c08c1f2","correlationId":"ef93a312-edc4-49f3-907a-f923bb28b374","application":"recon-consumer-app"}
+{"@timestamp":"2026-05-10T09:18:10.060841017Z","@version":"1","message":"Created or retrieved circuit breaker 'databaseCircuitBreaker' with failure rate '50.0' for method: 'com.ntt.recon.service.ReconciliationService#reconcileWithRetry'","logger_name":"io.github.resilience4j.spring6.circuitbreaker.configure.CircuitBreakerAspect","thread_name":"org.springframework.jms.JmsListenerEndpointContainer#1-4","level":"DEBUG","level_value":10000,"appName":"recon-consumer-app","traceId":"9c42f6000522d8794ba2940bf228d72d","spanId":"a6b13db5b0cc41f4","correlationId":"85dd7c80-c7c6-4f36-8c94-9b515ead16ca","application":"recon-consumer-app"}
+{"@timestamp":"2026-05-10T09:18:10.065864187Z","@version":"1","message":"Created or retrieved circuit breaker 'databaseCircuitBreaker' with failure rate '50.0' for method: 'com.ntt.recon.service.ReconciliationService#reconcileWithRetry'","logger_name":"io.github.resilience4j.spring6.circuitbreaker.configure.CircuitBreakerAspect","thread_name":"org.springframework.jms.JmsListenerEndpointContainer#1-5","level":"DEBUG","level_value":10000,"appName":"recon-consumer-app","traceId":"9c42f6000522d8794ba2940bf228d72d","spanId":"a6b13db5b0cc41f4","correlationId":"8c866f84-219f-4a13-ac38-7701ef6f56dd","application":"recon-consumer-app"}
+{"@timestamp":"2026-05-10T09:18:10.069892748Z","@version":"1","message":"CircuitBreaker 'databaseCircuitBreaker' succeeded:","logger_name":"io.github.resilience4j.circuitbreaker.internal.CircuitBreakerStateMachine","thread_name":"org.springframework.jms.JmsListenerEndpointContainer#1-4","level":"DEBUG","level_value":10000,"appName":"recon-consumer-app","traceId":"9c42f6000522d8794ba2940bf228d72d","spanId":"a6b13db5b0cc41f4","correlationId":"85dd7c80-c7c6-4f36-8c94-9b515ead16ca","application":"recon-consumer-app"}
+{"@timestamp":"2026-05-10T09:18:10.069933357Z","@version":"1","message":"Event SUCCESS published: 2026-05-10T09:18:10.069926369Z[GMT]: CircuitBreaker 'databaseCircuitBreaker' recorded a successful call. Elapsed time: 8 ms","logger_name":"io.github.resilience4j.circuitbreaker.internal.CircuitBreakerStateMachine","thread_name":"org.springframework.jms.JmsListenerEndpointContainer#1-4","level":"DEBUG","level_value":10000,"appName":"recon-consumer-app","traceId":"9c42f6000522d8794ba2940bf228d72d","spanId":"a6b13db5b0cc41f4","correlationId":"85dd7c80-c7c6-4f36-8c94-9b515ead16ca","application":"recon-consumer-app"}
+{"@timestamp":"2026-05-10T09:18:10.07284927Z","@version":"1","message":"CircuitBreaker 'databaseCircuitBreaker' succeeded:","logger_name":"io.github.resilience4j.circuitbreaker.internal.CircuitBreakerStateMachine","thread_name":"org.springframework.jms.JmsListenerEndpointContainer#1-5","level":"DEBUG","level_value":10000,"appName":"recon-consumer-app","traceId":"9c42f6000522d8794ba2940bf228d72d","spanId":"a6b13db5b0cc41f4","correlationId":"8c866f84-219f-4a13-ac38-7701ef6f56dd","application":"recon-consumer-app"}
+{"@timestamp":"2026-05-10T09:18:10.072865793Z","@version":"1","message":"Event SUCCESS published: 2026-05-10T09:18:10.072860585Z[GMT]: CircuitBreaker 'databaseCircuitBreaker' recorded a successful call. Elapsed time: 6 ms","logger_name":"io.github.resilience4j.circuitbreaker.internal.CircuitBreakerStateMachine","thread_name":"org.springframework.jms.JmsListenerEndpointContainer#1-5","level":"DEBUG","level_value":10000,"appName":"recon-consumer-app","traceId":"9c42f6000522d8794ba2940bf228d72d","spanId":"a6b13db5b0cc41f4","correlationId":"8c866f84-219f-4a13-ac38-7701ef6f56dd","application":"recon-consumer-app"}
+{"@timestamp":"2026-05-10T09:18:11.061103763Z","@version":"1","message":"Created or retrieved circuit breaker 'databaseCircuitBreaker' with failure rate '50.0' for method: 'com.ntt.recon.service.ReconciliationService#reconcileWithRetry'","logger_name":"io.github.resilience4j.spring6.circuitbreaker.configure.CircuitBreakerAspect","thread_name":"org.springframework.jms.JmsListenerEndpointContainer#1-8","level":"DEBUG","level_value":10000,"appName":"recon-consumer-app","traceId":"cc281107c119d5f0393ba82fb2d74a70","spanId":"a89d52ff9b13f9d2","correlationId":"95f60b8c-1c10-42e7-a995-bebf7eb86483","application":"recon-consumer-app"}
+{"@timestamp":"2026-05-10T09:18:11.066351092Z","@version":"1","message":"Created or retrieved circuit breaker 'databaseCircuitBreaker' with failure rate '50.0' for method: 'com.ntt.recon.service.ReconciliationService#reconcileWithRetry'","logger_name":"io.github.resilience4j.spring6.circuitbreaker.configure.CircuitBreakerAspect","thread_name":"org.springframework.jms.JmsListenerEndpointContainer#1-2","level":"DEBUG","level_value":10000,"appName":"recon-consumer-app","traceId":"cc281107c119d5f0393ba82fb2d74a70","spanId":"a89d52ff9b13f9d2","correlationId":"ade744a4-b605-4ab6-b540-a3aed15f7469","application":"recon-consumer-app"}
+{"@timestamp":"2026-05-10T09:18:11.06964393Z","@version":"1","message":"CircuitBreaker 'databaseCircuitBreaker' succeeded:","logger_name":"io.github.resilience4j.circuitbreaker.internal.CircuitBreakerStateMachine","thread_name":"org.springframework.jms.JmsListenerEndpointContainer#1-8","level":"DEBUG","level_value":10000,"appName":"recon-consumer-app","traceId":"cc281107c119d5f0393ba82fb2d74a70","spanId":"a89d52ff9b13f9d2","correlationId":"95f60b8c-1c10-42e7-a995-bebf7eb86483","application":"recon-consumer-app"}
+{"@timestamp":"2026-05-10T09:18:11.069663297Z","@version":"1","message":"Event SUCCESS published: 2026-05-10T09:18:11.069656254Z[GMT]: CircuitBreaker 'databaseCircuitBreaker' recorded a successful call. Elapsed time: 8 ms","logger_name":"io.github.resilience4j.circuitbreaker.internal.CircuitBreakerStateMachine","thread_name":"org.springframework.jms.JmsListenerEndpointContainer#1-8","level":"DEBUG","level_value":10000,"appName":"recon-consumer-app","traceId":"cc281107c119d5f0393ba82fb2d74a70","spanId":"a89d52ff9b13f9d2","correlationId":"95f60b8c-1c10-42e7-a995-bebf7eb86483","application":"recon-consumer-app"}
+{"@timestamp":"2026-05-10T09:18:11.072984744Z","@version":"1","message":"CircuitBreaker 'databaseCircuitBreaker' succeeded:","logger_name":"io.github.resilience4j.circuitbreaker.internal.CircuitBreakerStateMachine","thread_name":"org.springframework.jms.JmsListenerEndpointContainer#1-2","level":"DEBUG","level_value":10000,"appName":"recon-consumer-app","traceId":"cc281107c119d5f0393ba82fb2d74a70","spanId":"a89d52ff9b13f9d2","correlationId":"ade744a4-b605-4ab6-b540-a3aed15f7469","application":"recon-consumer-app"}
+{"@timestamp":"2026-05-10T09:18:11.073004549Z","@version":"1","message":"Event SUCCESS published: 2026-05-10T09:18:11.072999377Z[GMT]: CircuitBreaker 'databaseCircuitBreaker' recorded a successful call. Elapsed time: 6 ms","logger_name":"io.github.resilience4j.circuitbreaker.internal.CircuitBreakerStateMachine","thread_name":"org.springframework.jms.JmsListenerEndpointContainer#1-2","level":"DEBUG","level_value":10000,"appName":"recon-consumer-app","traceId":"cc281107c119d5f0393ba82fb2d74a70","spanId":"a89d52ff9b13f9d2","correlationId":"ade744a4-b605-4ab6-b540-a3aed15f7469","application":"recon-consumer-app"}
+
+
+==========================================================================================
+PRODUCER LOG PROOF - MESSAGES CONTINUED DURING SCENARIO
+==========================================================================================
+COMMAND: kubectl logs -n recon-platform deploy/recon-producer-app --since=20m | Select-String -Pattern 'transaction_published|published|DB_DEADLOCK|simulation' | Select-Object -First 80
+
+{"@timestamp":"2026-05-10T09:08:06.060615767Z","@version":"1","message":"event=transaction_published transactionId=txn-a727d46b-60a1-4c66-88ff-0087efd8c499 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:06.064545765Z","@version":"1","message":"event=transaction_published transactionId=txn-994aadf6-99db-4e2f-a8c9-219a7258882e queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:07.060242188Z","@version":"1","message":"event=transaction_published transactionId=txn-e3a4d23e-fb08-46d1-ba6b-8fc0d3888349 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:07.063467281Z","@version":"1","message":"event=transaction_published transactionId=txn-93dd0faa-8ae0-4a89-8559-ad64bf60aff2 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:08.060542108Z","@version":"1","message":"event=transaction_published transactionId=txn-d94585ad-0c4f-42ad-8762-a8a45b40ab2e queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:08.066572154Z","@version":"1","message":"event=transaction_published transactionId=txn-7d4b7c35-60d2-42eb-bb12-dabd5977868b queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:09.060887495Z","@version":"1","message":"event=transaction_published transactionId=txn-7dd2d283-4dce-45d7-9d37-b2a984ae86c3 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:09.064178961Z","@version":"1","message":"event=transaction_published transactionId=txn-19cf04af-a9ba-43be-ad3a-61fbb955f89d queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:10.060582231Z","@version":"1","message":"event=transaction_published transactionId=txn-dd868263-10ba-4188-948b-2ccb1fe2f215 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:10.063996654Z","@version":"1","message":"event=transaction_published transactionId=txn-d1ca5bad-757d-4bd4-b341-8a3d4c5f3344 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:11.060827636Z","@version":"1","message":"event=transaction_published transactionId=txn-094d85a0-2ce7-42ad-a737-38b002a59763 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:11.065386149Z","@version":"1","message":"event=transaction_published transactionId=txn-f83ad2eb-b737-4641-822a-3eeee8110bf0 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:12.060565732Z","@version":"1","message":"event=transaction_published transactionId=txn-6ae7f6b7-9c5f-4087-933b-c145914d986f queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:12.064369906Z","@version":"1","message":"event=transaction_published transactionId=txn-5652b56b-fc43-4b17-872e-34059ff0a513 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:13.060627833Z","@version":"1","message":"event=transaction_published transactionId=txn-02a92d1c-0f47-4c81-b9cd-3ddb70da21fd queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:13.065512109Z","@version":"1","message":"event=transaction_published transactionId=txn-f4bd51b3-cee9-430b-b088-b878c3e8a839 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:14.059912596Z","@version":"1","message":"event=transaction_published transactionId=txn-5afeb23f-b156-4f54-a441-d1d81cdf85f7 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:14.066011672Z","@version":"1","message":"event=transaction_published transactionId=txn-b06ff90f-91d8-41b0-9b96-b8780fa51337 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:15.060708513Z","@version":"1","message":"event=transaction_published transactionId=txn-7290699b-04d7-4abb-9048-5ae4929f303a queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:15.065022616Z","@version":"1","message":"event=transaction_published transactionId=txn-8b304960-0b0c-4072-b689-254609322816 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:16.059817949Z","@version":"1","message":"event=transaction_published transactionId=txn-a9023a83-8c9f-474c-8918-9e61ac43908f queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:16.064338187Z","@version":"1","message":"event=transaction_published transactionId=txn-254c99d6-8192-4b38-8283-ffd2cbdb361b queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:17.059317644Z","@version":"1","message":"event=transaction_published transactionId=txn-32c72dce-3f6d-4fa0-851f-eb2ed77c4317 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:17.065057631Z","@version":"1","message":"event=transaction_published transactionId=txn-6291ee9f-b540-4d6e-a697-adc90da3d682 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:18.06020983Z","@version":"1","message":"event=transaction_published transactionId=txn-2021e030-dddb-4ce1-8c1e-75940fef2d15 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:18.065138769Z","@version":"1","message":"event=transaction_published transactionId=txn-0d8e5681-280e-4de1-b3ed-57953c0cbaee queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:19.059538737Z","@version":"1","message":"event=transaction_published transactionId=txn-fab5512d-987a-4532-a51b-05b00f45ca48 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:19.065491058Z","@version":"1","message":"event=transaction_published transactionId=txn-f45a86cf-caa8-434e-8861-421bfd14e3f7 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:20.059398989Z","@version":"1","message":"event=transaction_published transactionId=txn-9f43abfa-98ba-4d95-b354-97709cbb3a30 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:20.063809069Z","@version":"1","message":"event=transaction_published transactionId=txn-4f889cb6-3542-4d39-9446-c1993e925d88 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:21.059184966Z","@version":"1","message":"event=transaction_published transactionId=txn-92e53148-225b-47ca-b9f1-1d529ade3821 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:21.063807922Z","@version":"1","message":"event=transaction_published transactionId=txn-cf7e2116-327a-4750-9860-bbf385bf63f1 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:22.059307721Z","@version":"1","message":"event=transaction_published transactionId=txn-53dbd4d1-48c4-4238-a84b-d3e9e7d41c84 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:22.067536441Z","@version":"1","message":"event=transaction_published transactionId=txn-77ddbe08-c2ad-40a3-9d35-80c5a50cd145 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:23.059354097Z","@version":"1","message":"event=transaction_published transactionId=txn-d1609750-20bb-4da8-b651-d73f44c2912e queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:23.064973456Z","@version":"1","message":"event=transaction_published transactionId=txn-522cad2e-0e7a-4636-b5ec-848739d21af3 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:24.059648214Z","@version":"1","message":"event=transaction_published transactionId=txn-a017e642-bec2-4bfc-b3b3-641f06d9cf71 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:24.065375772Z","@version":"1","message":"event=transaction_published transactionId=txn-d5cb9f8f-691e-477a-93b1-b78dc146aa9e queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:25.060387251Z","@version":"1","message":"event=transaction_published transactionId=txn-e234b85c-e582-4cf9-a997-a6d2d3ed9df7 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:25.064330697Z","@version":"1","message":"event=transaction_published transactionId=txn-4033a7e2-d6cb-41b5-bc92-e8aed35a94b1 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:26.061126975Z","@version":"1","message":"event=transaction_published transactionId=txn-81045005-d74f-4f0f-8330-e001c8423bf7 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:26.066545504Z","@version":"1","message":"event=transaction_published transactionId=txn-95e3fc0f-12f0-4d93-8744-b22ae4dd5c8f queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:27.060793212Z","@version":"1","message":"event=transaction_published transactionId=txn-7bd5bef5-1d85-40b8-a3d5-dd301ed9560f queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:27.066119977Z","@version":"1","message":"event=transaction_published transactionId=txn-360e9368-d83f-4dac-9e46-a2a390d35de2 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:28.061508142Z","@version":"1","message":"event=transaction_published transactionId=txn-83472c06-3c5f-4b3c-af43-e0f53904edd8 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:28.065119048Z","@version":"1","message":"event=transaction_published transactionId=txn-8b7e13d3-6ea1-4172-a4a6-29318a61d2f6 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:29.061467768Z","@version":"1","message":"event=transaction_published transactionId=txn-4c95070b-4bdd-4028-8be0-4a452dc9f0a4 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:29.066388401Z","@version":"1","message":"event=transaction_published transactionId=txn-a6872c7f-19dd-4a65-b1e8-2c824c2f9b47 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:30.065274273Z","@version":"1","message":"event=transaction_published transactionId=txn-7de77acf-5d7f-4534-ae15-49c8e7fe2c22 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:30.070049006Z","@version":"1","message":"event=transaction_published transactionId=txn-bea137c7-c6fd-4947-aec0-4b3a8d08c1ad queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:31.060328506Z","@version":"1","message":"event=transaction_published transactionId=txn-e67c62e0-5c20-40d0-a1a7-0958854f9707 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:31.064038514Z","@version":"1","message":"event=transaction_published transactionId=txn-e0e2233a-d087-4bc0-b58e-7a7afe0554a3 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:32.061129842Z","@version":"1","message":"event=transaction_published transactionId=txn-d1388825-0459-4fac-806b-bd24a5cde4aa queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:32.065484782Z","@version":"1","message":"event=transaction_published transactionId=txn-7e62ae64-eac5-4c50-be42-2d0f14cefc7f queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:33.060586859Z","@version":"1","message":"event=transaction_published transactionId=txn-1e2de07c-eba9-479a-9133-89c81497fff5 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:33.06430722Z","@version":"1","message":"event=transaction_published transactionId=txn-6366320e-b65f-48d7-9e5b-ebf19c8d656f queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:34.060570938Z","@version":"1","message":"event=transaction_published transactionId=txn-79cde6a3-876c-4769-afb2-5c3f8d2defe8 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:34.066341957Z","@version":"1","message":"event=transaction_published transactionId=txn-a7574055-e712-4a5c-9f6d-844364530c46 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:35.060649212Z","@version":"1","message":"event=transaction_published transactionId=txn-97f91f69-e15f-407a-8545-253180cfeba8 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:35.063934891Z","@version":"1","message":"event=transaction_published transactionId=txn-669b0e35-aa20-4e97-84ea-78551a6337f3 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:36.062672564Z","@version":"1","message":"event=transaction_published transactionId=txn-b145e96d-b348-408e-b895-53050ae96996 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:36.068117081Z","@version":"1","message":"event=transaction_published transactionId=txn-aa3745c1-ae5e-4127-867a-24591ab3485f queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:37.059783623Z","@version":"1","message":"event=transaction_published transactionId=txn-95084025-9021-4323-ba34-f65e7b8d18c2 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:37.0670829Z","@version":"1","message":"event=transaction_published transactionId=txn-10fc0330-7ff1-4555-a68a-173ca6b6276c queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:38.06027298Z","@version":"1","message":"event=transaction_published transactionId=txn-b629f095-690b-4c62-8ff0-4a384594a57a queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:38.065731096Z","@version":"1","message":"event=transaction_published transactionId=txn-b89f8cb6-2bd1-477a-a196-2e05497949cf queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:39.059850418Z","@version":"1","message":"event=transaction_published transactionId=txn-c46f4cf0-fef8-404f-b0cf-1661eb2acb07 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:39.064725098Z","@version":"1","message":"event=transaction_published transactionId=txn-bff88231-b73d-44b7-8f28-ec46c0b2ff47 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:40.060695098Z","@version":"1","message":"event=transaction_published transactionId=txn-11c59bcf-f07b-4de4-8b84-591963ed8fd8 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:40.065257516Z","@version":"1","message":"event=transaction_published transactionId=txn-ae67108b-f7b7-440d-8349-b5e5c92291f1 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:41.059990086Z","@version":"1","message":"event=transaction_published transactionId=txn-b0a68586-0484-442e-b404-5e126a7180f6 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:41.064385108Z","@version":"1","message":"event=transaction_published transactionId=txn-4072e9af-16b2-4887-953c-d270361f6865 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:42.0612148Z","@version":"1","message":"event=transaction_published transactionId=txn-af3f48b0-deae-4b5f-a198-8a51b809e141 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:42.068917251Z","@version":"1","message":"event=transaction_published transactionId=txn-6b063415-f37c-4d25-bfdd-970642525f8d queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:43.066987916Z","@version":"1","message":"event=transaction_published transactionId=txn-07464b89-37fc-4a76-b2da-44aeb2273dea queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:43.071769255Z","@version":"1","message":"event=transaction_published transactionId=txn-a43d4639-74ca-4dcb-aa2e-573e93d832cb queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:44.060477759Z","@version":"1","message":"event=transaction_published transactionId=txn-5eaebacc-6b33-401e-b06b-a47aa68df146 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:44.065565639Z","@version":"1","message":"event=transaction_published transactionId=txn-dea6b47e-4ebf-49cd-b528-07f4d992c8c8 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:45.061474444Z","@version":"1","message":"event=transaction_published transactionId=txn-9f712d55-3b17-440c-9f1d-c30dad7e9851 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:08:45.066537453Z","@version":"1","message":"event=transaction_published transactionId=txn-4ddc0ece-a659-4aae-bd0e-302ff1cbe7e9 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+
+
+==========================================================================================
+DASHBOARD LOG PROOF - API HEALTH DURING SCENARIO
+==========================================================================================
+COMMAND: kubectl logs -n recon-platform deploy/recon-dashboard-api --since=20m | Select-String -Pattern 'Started|reconciliation|status|queues|ERROR|WARN' | Select-Object -First 80
+
+{"@timestamp":"2026-05-10T09:02:00.997628994Z","@version":"1","message":"GET \"/api/reconciliation/status\", parameters={}","logger_name":"org.springframework.web.servlet.DispatcherServlet","thread_name":"http-nio-8083-exec-8","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"442aaddc9599c0953683245a75e957b5","spanId":"0485cfbac39faaf2","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:02:00.997838102Z","@version":"1","message":"Mapped to com.ntt.recon.api.ReconciliationController#status()","logger_name":"org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping","thread_name":"http-nio-8083-exec-8","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"442aaddc9599c0953683245a75e957b5","spanId":"0485cfbac39faaf2","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:02:00.99918129Z","@version":"1","message":"select count(rr1_0.id) from reconciliation_record rr1_0","logger_name":"org.hibernate.SQL","thread_name":"http-nio-8083-exec-8","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"442aaddc9599c0953683245a75e957b5","spanId":"0485cfbac39faaf2","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:02:01.01720069Z","@version":"1","message":"Registration of TableGroup [StandardTableGroup(com.ntt.recon.domain.ReconciliationRecord(5))] with identifierForTableGroup [com.ntt.recon.domain.ReconciliationRecord] for NavigablePath [com.ntt.recon.domain.ReconciliationRecord] ","logger_name":"org.hibernate.orm.sql.ast.create","thread_name":"http-nio-8083-exec-8","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"442aaddc9599c0953683245a75e957b5","spanId":"0485cfbac39faaf2","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:02:01.01748312Z","@version":"1","message":"Determining mapping-model type for SqmPath : SqmBasicValuedSimplePath(com.ntt.recon.domain.ReconciliationRecord(5).status) ","logger_name":"org.hibernate.query.sqm.sql.BaseSqmToSqlAstConverter","thread_name":"http-nio-8083-exec-8","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"442aaddc9599c0953683245a75e957b5","spanId":"0485cfbac39faaf2","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:02:01.017864355Z","@version":"1","message":"SQL AST Tree:\n    SelectStatement {\n      FromClause {\n        StandardTableGroup (rr1 : com.ntt.recon.domain.ReconciliationRecord(5)) {\n          primaryTableReference : reconciliation_record as rr1_0\n        }\n      }\n    }\n","logger_name":"org.hibernate.orm.sql.ast.tree","thread_name":"http-nio-8083-exec-8","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"442aaddc9599c0953683245a75e957b5","spanId":"0485cfbac39faaf2","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:02:01.018328195Z","@version":"1","message":"select count(rr1_0.id) from reconciliation_record rr1_0 where rr1_0.status=?","logger_name":"org.hibernate.SQL","thread_name":"http-nio-8083-exec-8","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"442aaddc9599c0953683245a75e957b5","spanId":"0485cfbac39faaf2","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:02:01.02342056Z","@version":"1","message":"Registration of TableGroup [StandardTableGroup(com.ntt.recon.domain.ReconciliationRecord(5))] with identifierForTableGroup [com.ntt.recon.domain.ReconciliationRecord] for NavigablePath [com.ntt.recon.domain.ReconciliationRecord] ","logger_name":"org.hibernate.orm.sql.ast.create","thread_name":"http-nio-8083-exec-8","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"442aaddc9599c0953683245a75e957b5","spanId":"0485cfbac39faaf2","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:02:01.023716168Z","@version":"1","message":"Determining mapping-model type for SqmPath : SqmBasicValuedSimplePath(com.ntt.recon.domain.ReconciliationRecord(5).status) ","logger_name":"org.hibernate.query.sqm.sql.BaseSqmToSqlAstConverter","thread_name":"http-nio-8083-exec-8","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"442aaddc9599c0953683245a75e957b5","spanId":"0485cfbac39faaf2","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:02:01.02410726Z","@version":"1","message":"SQL AST Tree:\n    SelectStatement {\n      FromClause {\n        StandardTableGroup (rr1 : com.ntt.recon.domain.ReconciliationRecord(5)) {\n          primaryTableReference : reconciliation_record as rr1_0\n        }\n      }\n    }\n","logger_name":"org.hibernate.orm.sql.ast.tree","thread_name":"http-nio-8083-exec-8","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"442aaddc9599c0953683245a75e957b5","spanId":"0485cfbac39faaf2","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:02:01.024651443Z","@version":"1","message":"select count(rr1_0.id) from reconciliation_record rr1_0 where rr1_0.status=?","logger_name":"org.hibernate.SQL","thread_name":"http-nio-8083-exec-8","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"442aaddc9599c0953683245a75e957b5","spanId":"0485cfbac39faaf2","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:02:01.027907178Z","@version":"1","message":"Registration of TableGroup [StandardTableGroup(com.ntt.recon.domain.ReconciliationRecord(5))] with identifierForTableGroup [com.ntt.recon.domain.ReconciliationRecord] for NavigablePath [com.ntt.recon.domain.ReconciliationRecord] ","logger_name":"org.hibernate.orm.sql.ast.create","thread_name":"http-nio-8083-exec-8","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"442aaddc9599c0953683245a75e957b5","spanId":"0485cfbac39faaf2","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:02:01.028244256Z","@version":"1","message":"Determining mapping-model type for SqmPath : SqmBasicValuedSimplePath(com.ntt.recon.domain.ReconciliationRecord(5).status) ","logger_name":"org.hibernate.query.sqm.sql.BaseSqmToSqlAstConverter","thread_name":"http-nio-8083-exec-8","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"442aaddc9599c0953683245a75e957b5","spanId":"0485cfbac39faaf2","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:02:01.028715317Z","@version":"1","message":"SQL AST Tree:\n    SelectStatement {\n      FromClause {\n        StandardTableGroup (rr1 : com.ntt.recon.domain.ReconciliationRecord(5)) {\n          primaryTableReference : reconciliation_record as rr1_0\n        }\n      }\n    }\n","logger_name":"org.hibernate.orm.sql.ast.tree","thread_name":"http-nio-8083-exec-8","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"442aaddc9599c0953683245a75e957b5","spanId":"0485cfbac39faaf2","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:02:01.029060159Z","@version":"1","message":"select count(rr1_0.id) from reconciliation_record rr1_0 where rr1_0.status=?","logger_name":"org.hibernate.SQL","thread_name":"http-nio-8083-exec-8","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"442aaddc9599c0953683245a75e957b5","spanId":"0485cfbac39faaf2","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:02:01.031407612Z","@version":"1","message":"Registration of TableGroup [StandardTableGroup(com.ntt.recon.domain.ReconciliationRecord(5))] with identifierForTableGroup [com.ntt.recon.domain.ReconciliationRecord] for NavigablePath [com.ntt.recon.domain.ReconciliationRecord] ","logger_name":"org.hibernate.orm.sql.ast.create","thread_name":"http-nio-8083-exec-8","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"442aaddc9599c0953683245a75e957b5","spanId":"0485cfbac39faaf2","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:02:01.031730095Z","@version":"1","message":"Determining mapping-model type for SqmPath : SqmBasicValuedSimplePath(com.ntt.recon.domain.ReconciliationRecord(5).status) ","logger_name":"org.hibernate.query.sqm.sql.BaseSqmToSqlAstConverter","thread_name":"http-nio-8083-exec-8","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"442aaddc9599c0953683245a75e957b5","spanId":"0485cfbac39faaf2","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:02:01.032019751Z","@version":"1","message":"SQL AST Tree:\n    SelectStatement {\n      FromClause {\n        StandardTableGroup (rr1 : com.ntt.recon.domain.ReconciliationRecord(5)) {\n          primaryTableReference : reconciliation_record as rr1_0\n        }\n      }\n    }\n","logger_name":"org.hibernate.orm.sql.ast.tree","thread_name":"http-nio-8083-exec-8","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"442aaddc9599c0953683245a75e957b5","spanId":"0485cfbac39faaf2","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:02:01.032754284Z","@version":"1","message":"select count(rr1_0.id) from reconciliation_record rr1_0 where rr1_0.status=?","logger_name":"org.hibernate.SQL","thread_name":"http-nio-8083-exec-8","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"442aaddc9599c0953683245a75e957b5","spanId":"0485cfbac39faaf2","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:03:31.387699018Z","@version":"1","message":"GET \"/api/reconciliation/status\", parameters={}","logger_name":"org.springframework.web.servlet.DispatcherServlet","thread_name":"http-nio-8083-exec-8","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"126092d51cff628235d05426e561c09c","spanId":"14790d57863b3b83","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:03:31.387961676Z","@version":"1","message":"Mapped to com.ntt.recon.api.ReconciliationController#status()","logger_name":"org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping","thread_name":"http-nio-8083-exec-8","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"126092d51cff628235d05426e561c09c","spanId":"14790d57863b3b83","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:03:31.389425106Z","@version":"1","message":"select count(rr1_0.id) from reconciliation_record rr1_0","logger_name":"org.hibernate.SQL","thread_name":"http-nio-8083-exec-8","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"126092d51cff628235d05426e561c09c","spanId":"14790d57863b3b83","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:03:31.395115413Z","@version":"1","message":"Registration of TableGroup [StandardTableGroup(com.ntt.recon.domain.ReconciliationRecord(5))] with identifierForTableGroup [com.ntt.recon.domain.ReconciliationRecord] for NavigablePath [com.ntt.recon.domain.ReconciliationRecord] ","logger_name":"org.hibernate.orm.sql.ast.create","thread_name":"http-nio-8083-exec-8","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"126092d51cff628235d05426e561c09c","spanId":"14790d57863b3b83","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:03:31.395526509Z","@version":"1","message":"Determining mapping-model type for SqmPath : SqmBasicValuedSimplePath(com.ntt.recon.domain.ReconciliationRecord(5).status) ","logger_name":"org.hibernate.query.sqm.sql.BaseSqmToSqlAstConverter","thread_name":"http-nio-8083-exec-8","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"126092d51cff628235d05426e561c09c","spanId":"14790d57863b3b83","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:03:31.395978053Z","@version":"1","message":"SQL AST Tree:\n    SelectStatement {\n      FromClause {\n        StandardTableGroup (rr1 : com.ntt.recon.domain.ReconciliationRecord(5)) {\n          primaryTableReference : reconciliation_record as rr1_0\n        }\n      }\n    }\n","logger_name":"org.hibernate.orm.sql.ast.tree","thread_name":"http-nio-8083-exec-8","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"126092d51cff628235d05426e561c09c","spanId":"14790d57863b3b83","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:03:31.396575187Z","@version":"1","message":"select count(rr1_0.id) from reconciliation_record rr1_0 where rr1_0.status=?","logger_name":"org.hibernate.SQL","thread_name":"http-nio-8083-exec-8","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"126092d51cff628235d05426e561c09c","spanId":"14790d57863b3b83","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:03:31.40159709Z","@version":"1","message":"Registration of TableGroup [StandardTableGroup(com.ntt.recon.domain.ReconciliationRecord(5))] with identifierForTableGroup [com.ntt.recon.domain.ReconciliationRecord] for NavigablePath [com.ntt.recon.domain.ReconciliationRecord] ","logger_name":"org.hibernate.orm.sql.ast.create","thread_name":"http-nio-8083-exec-8","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"126092d51cff628235d05426e561c09c","spanId":"14790d57863b3b83","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:03:31.401891617Z","@version":"1","message":"Determining mapping-model type for SqmPath : SqmBasicValuedSimplePath(com.ntt.recon.domain.ReconciliationRecord(5).status) ","logger_name":"org.hibernate.query.sqm.sql.BaseSqmToSqlAstConverter","thread_name":"http-nio-8083-exec-8","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"126092d51cff628235d05426e561c09c","spanId":"14790d57863b3b83","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:03:31.402241519Z","@version":"1","message":"SQL AST Tree:\n    SelectStatement {\n      FromClause {\n        StandardTableGroup (rr1 : com.ntt.recon.domain.ReconciliationRecord(5)) {\n          primaryTableReference : reconciliation_record as rr1_0\n        }\n      }\n    }\n","logger_name":"org.hibernate.orm.sql.ast.tree","thread_name":"http-nio-8083-exec-8","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"126092d51cff628235d05426e561c09c","spanId":"14790d57863b3b83","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:03:31.402583718Z","@version":"1","message":"select count(rr1_0.id) from reconciliation_record rr1_0 where rr1_0.status=?","logger_name":"org.hibernate.SQL","thread_name":"http-nio-8083-exec-8","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"126092d51cff628235d05426e561c09c","spanId":"14790d57863b3b83","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:03:31.405651736Z","@version":"1","message":"Registration of TableGroup [StandardTableGroup(com.ntt.recon.domain.ReconciliationRecord(5))] with identifierForTableGroup [com.ntt.recon.domain.ReconciliationRecord] for NavigablePath [com.ntt.recon.domain.ReconciliationRecord] ","logger_name":"org.hibernate.orm.sql.ast.create","thread_name":"http-nio-8083-exec-8","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"126092d51cff628235d05426e561c09c","spanId":"14790d57863b3b83","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:03:31.405994712Z","@version":"1","message":"Determining mapping-model type for SqmPath : SqmBasicValuedSimplePath(com.ntt.recon.domain.ReconciliationRecord(5).status) ","logger_name":"org.hibernate.query.sqm.sql.BaseSqmToSqlAstConverter","thread_name":"http-nio-8083-exec-8","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"126092d51cff628235d05426e561c09c","spanId":"14790d57863b3b83","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:03:31.406342765Z","@version":"1","message":"SQL AST Tree:\n    SelectStatement {\n      FromClause {\n        StandardTableGroup (rr1 : com.ntt.recon.domain.ReconciliationRecord(5)) {\n          primaryTableReference : reconciliation_record as rr1_0\n        }\n      }\n    }\n","logger_name":"org.hibernate.orm.sql.ast.tree","thread_name":"http-nio-8083-exec-8","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"126092d51cff628235d05426e561c09c","spanId":"14790d57863b3b83","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:03:31.406783056Z","@version":"1","message":"select count(rr1_0.id) from reconciliation_record rr1_0 where rr1_0.status=?","logger_name":"org.hibernate.SQL","thread_name":"http-nio-8083-exec-8","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"126092d51cff628235d05426e561c09c","spanId":"14790d57863b3b83","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:03:31.409186802Z","@version":"1","message":"Registration of TableGroup [StandardTableGroup(com.ntt.recon.domain.ReconciliationRecord(5))] with identifierForTableGroup [com.ntt.recon.domain.ReconciliationRecord] for NavigablePath [com.ntt.recon.domain.ReconciliationRecord] ","logger_name":"org.hibernate.orm.sql.ast.create","thread_name":"http-nio-8083-exec-8","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"126092d51cff628235d05426e561c09c","spanId":"14790d57863b3b83","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:03:31.409501716Z","@version":"1","message":"Determining mapping-model type for SqmPath : SqmBasicValuedSimplePath(com.ntt.recon.domain.ReconciliationRecord(5).status) ","logger_name":"org.hibernate.query.sqm.sql.BaseSqmToSqlAstConverter","thread_name":"http-nio-8083-exec-8","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"126092d51cff628235d05426e561c09c","spanId":"14790d57863b3b83","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:03:31.409782395Z","@version":"1","message":"SQL AST Tree:\n    SelectStatement {\n      FromClause {\n        StandardTableGroup (rr1 : com.ntt.recon.domain.ReconciliationRecord(5)) {\n          primaryTableReference : reconciliation_record as rr1_0\n        }\n      }\n    }\n","logger_name":"org.hibernate.orm.sql.ast.tree","thread_name":"http-nio-8083-exec-8","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"126092d51cff628235d05426e561c09c","spanId":"14790d57863b3b83","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:03:31.410278832Z","@version":"1","message":"select count(rr1_0.id) from reconciliation_record rr1_0 where rr1_0.status=?","logger_name":"org.hibernate.SQL","thread_name":"http-nio-8083-exec-8","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"126092d51cff628235d05426e561c09c","spanId":"14790d57863b3b83","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:03:31.453416921Z","@version":"1","message":"GET \"/api/reconciliation/queues\", parameters={}","logger_name":"org.springframework.web.servlet.DispatcherServlet","thread_name":"http-nio-8083-exec-7","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"706f7e390c4cb5c062cbf48d34a9e6ca","spanId":"efd8558851174a91","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:03:31.4536829Z","@version":"1","message":"Mapped to com.ntt.recon.api.ReconciliationController#queues()","logger_name":"org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping","thread_name":"http-nio-8083-exec-7","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"706f7e390c4cb5c062cbf48d34a9e6ca","spanId":"efd8558851174a91","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:06:10.087390327Z","@version":"1","message":"Using @ExceptionHandler com.ntt.recon.api.error.GlobalExceptionHandler#unexpected(Exception, WebRequest)","logger_name":"org.springframework.web.servlet.mvc.method.annotation.ExceptionHandlerExceptionResolver","thread_name":"http-nio-8083-exec-1","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"c184adde6d5fab13fa0333ea5b94a870","spanId":"6c214cf00e3e1d30","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:06:10.087456116Z","@version":"1","message":"event=api_unexpected_error","logger_name":"com.ntt.recon.api.error.GlobalExceptionHandler","thread_name":"http-nio-8083-exec-1","level":"ERROR","level_value":40000,"stack_trace":"org.springframework.web.servlet.resource.NoResourceFoundException: No static resource .\n\tat org.springframework.web.servlet.resource.ResourceHttpRequestHandler.handleRequest(ResourceHttpRequestHandler.java:585)\n\tat org.springframework.web.servlet.mvc.HttpRequestHandlerAdapter.handle(HttpRequestHandlerAdapter.java:52)\n\tat org.springframework.web.servlet.DispatcherServlet.doDispatch(DispatcherServlet.java:1089)\n\tat org.springframework.web.servlet.DispatcherServlet.doService(DispatcherServlet.java:979)\n\tat org.springframework.web.servlet.FrameworkServlet.processRequest(FrameworkServlet.java:1014)\n\tat org.springframework.web.servlet.FrameworkServlet.doGet(FrameworkServlet.java:903)\n\tat jakarta.servlet.http.HttpServlet.service(HttpServlet.java:564)\n\tat org.springframework.web.servlet.FrameworkServlet.service(FrameworkServlet.java:885)\n\tat jakarta.servlet.http.HttpServlet.service(HttpServlet.java:658)\n\tat org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:195)\n\tat org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:140)\n\tat org.apache.tomcat.websocket.server.WsFilter.doFilter(WsFilter.java:51)\n\tat org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:164)\n\tat org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:140)\n\tat org.springframework.web.filter.RequestContextFilter.doFilterInternal(RequestContextFilter.java:100)\n\tat org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:116)\n\tat org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:164)\n\tat org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:140)\n\tat org.springframework.web.filter.FormContentFilter.doFilterInternal(FormContentFilter.java:93)\n\tat org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:116)\n\tat org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:164)\n\tat org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:140)\n\tat org.springframework.web.filter.ServerHttpObservationFilter.doFilterInternal(ServerHttpObservationFilter.java:113)\n\tat org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:116)\n\tat org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:164)\n\tat org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:140)\n\tat org.springframework.web.filter.CharacterEncodingFilter.doFilterInternal(CharacterEncodingFilter.java:201)\n\tat org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:116)\n\tat org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:164)\n\tat org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:140)\n\tat org.apache.catalina.core.StandardWrapperValve.invoke(StandardWrapperValve.java:167)\n\tat org.apache.catalina.core.StandardContextValve.invoke(StandardContextValve.java:90)\n\tat org.apache.catalina.authenticator.AuthenticatorBase.invoke(AuthenticatorBase.java:483)\n\tat org.apache.catalina.core.StandardHostValve.invoke(StandardHostValve.java:115)\n\tat org.apache.catalina.valves.ErrorReportValve.invoke(ErrorReportValve.java:93)\n\tat org.apache.catalina.core.StandardEngineValve.invoke(StandardEngineValve.java:74)\n\tat org.apache.catalina.valves.RemoteIpValve.invoke(RemoteIpValve.java:731)\n\tat org.apache.catalina.connector.CoyoteAdapter.service(CoyoteAdapter.java:344)\n\tat org.apache.coyote.http11.Http11Processor.service(Http11Processor.java:384)\n\tat org.apache.coyote.AbstractProcessorLight.process(AbstractProcessorLight.java:63)\n\tat org.apache.coyote.AbstractProtocol$ConnectionHandler.process(AbstractProtocol.java:905)\n\tat org.apache.tomcat.util.net.NioEndpoint$SocketProcessor.doRun(NioEndpoint.java:1741)\n\tat org.apache.tomcat.util.net.SocketProcessorBase.run(SocketProcessorBase.java:52)\n\tat org.apache.tomcat.util.threads.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1190)\n\tat org.apache.tomcat.util.threads.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:659)\n\tat org.apache.tomcat.util.threads.TaskThread$WrappingRunnable.run(TaskThread.java:63)\n\tat java.base/java.lang.Thread.run(Unknown Source)\n","appName":"recon-dashboard-api","traceId":"c184adde6d5fab13fa0333ea5b94a870","spanId":"6c214cf00e3e1d30","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:06:10.088813284Z","@version":"1","message":"Writing [ApiErrorResponse[timestamp=2026-05-10T09:06:10.087817366Z, status=500, error=Internal Server Error,  (truncated)...]","logger_name":"org.springframework.web.servlet.mvc.method.annotation.HttpEntityMethodProcessor","thread_name":"http-nio-8083-exec-1","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"c184adde6d5fab13fa0333ea5b94a870","spanId":"6c214cf00e3e1d30","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:06:10.089489036Z","@version":"1","message":"Completed 500 INTERNAL_SERVER_ERROR","logger_name":"org.springframework.web.servlet.DispatcherServlet","thread_name":"http-nio-8083-exec-1","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"c184adde6d5fab13fa0333ea5b94a870","spanId":"6c214cf00e3e1d30","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:07:59.866126337Z","@version":"1","message":"GET \"/api/reconciliation/status\", parameters={}","logger_name":"org.springframework.web.servlet.DispatcherServlet","thread_name":"http-nio-8083-exec-7","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"eabb99e2f55e702629cd5ffad2f98490","spanId":"c35e4a75e3f74542","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:07:59.866375836Z","@version":"1","message":"Mapped to com.ntt.recon.api.ReconciliationController#status()","logger_name":"org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping","thread_name":"http-nio-8083-exec-7","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"eabb99e2f55e702629cd5ffad2f98490","spanId":"c35e4a75e3f74542","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:07:59.867895797Z","@version":"1","message":"select count(rr1_0.id) from reconciliation_record rr1_0","logger_name":"org.hibernate.SQL","thread_name":"http-nio-8083-exec-7","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"eabb99e2f55e702629cd5ffad2f98490","spanId":"c35e4a75e3f74542","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:07:59.873175723Z","@version":"1","message":"Registration of TableGroup [StandardTableGroup(com.ntt.recon.domain.ReconciliationRecord(5))] with identifierForTableGroup [com.ntt.recon.domain.ReconciliationRecord] for NavigablePath [com.ntt.recon.domain.ReconciliationRecord] ","logger_name":"org.hibernate.orm.sql.ast.create","thread_name":"http-nio-8083-exec-7","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"eabb99e2f55e702629cd5ffad2f98490","spanId":"c35e4a75e3f74542","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:07:59.873439528Z","@version":"1","message":"Determining mapping-model type for SqmPath : SqmBasicValuedSimplePath(com.ntt.recon.domain.ReconciliationRecord(5).status) ","logger_name":"org.hibernate.query.sqm.sql.BaseSqmToSqlAstConverter","thread_name":"http-nio-8083-exec-7","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"eabb99e2f55e702629cd5ffad2f98490","spanId":"c35e4a75e3f74542","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:07:59.873736148Z","@version":"1","message":"SQL AST Tree:\n    SelectStatement {\n      FromClause {\n        StandardTableGroup (rr1 : com.ntt.recon.domain.ReconciliationRecord(5)) {\n          primaryTableReference : reconciliation_record as rr1_0\n        }\n      }\n    }\n","logger_name":"org.hibernate.orm.sql.ast.tree","thread_name":"http-nio-8083-exec-7","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"eabb99e2f55e702629cd5ffad2f98490","spanId":"c35e4a75e3f74542","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:07:59.874091809Z","@version":"1","message":"select count(rr1_0.id) from reconciliation_record rr1_0 where rr1_0.status=?","logger_name":"org.hibernate.SQL","thread_name":"http-nio-8083-exec-7","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"eabb99e2f55e702629cd5ffad2f98490","spanId":"c35e4a75e3f74542","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:07:59.878713037Z","@version":"1","message":"Registration of TableGroup [StandardTableGroup(com.ntt.recon.domain.ReconciliationRecord(5))] with identifierForTableGroup [com.ntt.recon.domain.ReconciliationRecord] for NavigablePath [com.ntt.recon.domain.ReconciliationRecord] ","logger_name":"org.hibernate.orm.sql.ast.create","thread_name":"http-nio-8083-exec-7","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"eabb99e2f55e702629cd5ffad2f98490","spanId":"c35e4a75e3f74542","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:07:59.878984991Z","@version":"1","message":"Determining mapping-model type for SqmPath : SqmBasicValuedSimplePath(com.ntt.recon.domain.ReconciliationRecord(5).status) ","logger_name":"org.hibernate.query.sqm.sql.BaseSqmToSqlAstConverter","thread_name":"http-nio-8083-exec-7","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"eabb99e2f55e702629cd5ffad2f98490","spanId":"c35e4a75e3f74542","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:07:59.879264161Z","@version":"1","message":"SQL AST Tree:\n    SelectStatement {\n      FromClause {\n        StandardTableGroup (rr1 : com.ntt.recon.domain.ReconciliationRecord(5)) {\n          primaryTableReference : reconciliation_record as rr1_0\n        }\n      }\n    }\n","logger_name":"org.hibernate.orm.sql.ast.tree","thread_name":"http-nio-8083-exec-7","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"eabb99e2f55e702629cd5ffad2f98490","spanId":"c35e4a75e3f74542","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:07:59.879711926Z","@version":"1","message":"select count(rr1_0.id) from reconciliation_record rr1_0 where rr1_0.status=?","logger_name":"org.hibernate.SQL","thread_name":"http-nio-8083-exec-7","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"eabb99e2f55e702629cd5ffad2f98490","spanId":"c35e4a75e3f74542","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:07:59.882875822Z","@version":"1","message":"Registration of TableGroup [StandardTableGroup(com.ntt.recon.domain.ReconciliationRecord(5))] with identifierForTableGroup [com.ntt.recon.domain.ReconciliationRecord] for NavigablePath [com.ntt.recon.domain.ReconciliationRecord] ","logger_name":"org.hibernate.orm.sql.ast.create","thread_name":"http-nio-8083-exec-7","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"eabb99e2f55e702629cd5ffad2f98490","spanId":"c35e4a75e3f74542","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:07:59.88321916Z","@version":"1","message":"Determining mapping-model type for SqmPath : SqmBasicValuedSimplePath(com.ntt.recon.domain.ReconciliationRecord(5).status) ","logger_name":"org.hibernate.query.sqm.sql.BaseSqmToSqlAstConverter","thread_name":"http-nio-8083-exec-7","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"eabb99e2f55e702629cd5ffad2f98490","spanId":"c35e4a75e3f74542","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:07:59.883606014Z","@version":"1","message":"SQL AST Tree:\n    SelectStatement {\n      FromClause {\n        StandardTableGroup (rr1 : com.ntt.recon.domain.ReconciliationRecord(5)) {\n          primaryTableReference : reconciliation_record as rr1_0\n        }\n      }\n    }\n","logger_name":"org.hibernate.orm.sql.ast.tree","thread_name":"http-nio-8083-exec-7","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"eabb99e2f55e702629cd5ffad2f98490","spanId":"c35e4a75e3f74542","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:07:59.884101064Z","@version":"1","message":"select count(rr1_0.id) from reconciliation_record rr1_0 where rr1_0.status=?","logger_name":"org.hibernate.SQL","thread_name":"http-nio-8083-exec-7","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"eabb99e2f55e702629cd5ffad2f98490","spanId":"c35e4a75e3f74542","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:07:59.886829472Z","@version":"1","message":"Registration of TableGroup [StandardTableGroup(com.ntt.recon.domain.ReconciliationRecord(5))] with identifierForTableGroup [com.ntt.recon.domain.ReconciliationRecord] for NavigablePath [com.ntt.recon.domain.ReconciliationRecord] ","logger_name":"org.hibernate.orm.sql.ast.create","thread_name":"http-nio-8083-exec-7","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"eabb99e2f55e702629cd5ffad2f98490","spanId":"c35e4a75e3f74542","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:07:59.887087389Z","@version":"1","message":"Determining mapping-model type for SqmPath : SqmBasicValuedSimplePath(com.ntt.recon.domain.ReconciliationRecord(5).status) ","logger_name":"org.hibernate.query.sqm.sql.BaseSqmToSqlAstConverter","thread_name":"http-nio-8083-exec-7","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"eabb99e2f55e702629cd5ffad2f98490","spanId":"c35e4a75e3f74542","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:07:59.887378528Z","@version":"1","message":"SQL AST Tree:\n    SelectStatement {\n      FromClause {\n        StandardTableGroup (rr1 : com.ntt.recon.domain.ReconciliationRecord(5)) {\n          primaryTableReference : reconciliation_record as rr1_0\n        }\n      }\n    }\n","logger_name":"org.hibernate.orm.sql.ast.tree","thread_name":"http-nio-8083-exec-7","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"eabb99e2f55e702629cd5ffad2f98490","spanId":"c35e4a75e3f74542","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:07:59.887635665Z","@version":"1","message":"select count(rr1_0.id) from reconciliation_record rr1_0 where rr1_0.status=?","logger_name":"org.hibernate.SQL","thread_name":"http-nio-8083-exec-7","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"eabb99e2f55e702629cd5ffad2f98490","spanId":"c35e4a75e3f74542","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:09:42.484892004Z","@version":"1","message":"Using @ExceptionHandler com.ntt.recon.api.error.GlobalExceptionHandler#unexpected(Exception, WebRequest)","logger_name":"org.springframework.web.servlet.mvc.method.annotation.ExceptionHandlerExceptionResolver","thread_name":"http-nio-8083-exec-8","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"f4f04f3dca90d90ba77770c4917f73b3","spanId":"b58563680a70a26a","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:09:42.485033405Z","@version":"1","message":"event=api_unexpected_error","logger_name":"com.ntt.recon.api.error.GlobalExceptionHandler","thread_name":"http-nio-8083-exec-8","level":"ERROR","level_value":40000,"stack_trace":"org.springframework.web.servlet.resource.NoResourceFoundException: No static resource .\n\tat org.springframework.web.servlet.resource.ResourceHttpRequestHandler.handleRequest(ResourceHttpRequestHandler.java:585)\n\tat org.springframework.web.servlet.mvc.HttpRequestHandlerAdapter.handle(HttpRequestHandlerAdapter.java:52)\n\tat org.springframework.web.servlet.DispatcherServlet.doDispatch(DispatcherServlet.java:1089)\n\tat org.springframework.web.servlet.DispatcherServlet.doService(DispatcherServlet.java:979)\n\tat org.springframework.web.servlet.FrameworkServlet.processRequest(FrameworkServlet.java:1014)\n\tat org.springframework.web.servlet.FrameworkServlet.doGet(FrameworkServlet.java:903)\n\tat jakarta.servlet.http.HttpServlet.service(HttpServlet.java:564)\n\tat org.springframework.web.servlet.FrameworkServlet.service(FrameworkServlet.java:885)\n\tat jakarta.servlet.http.HttpServlet.service(HttpServlet.java:658)\n\tat org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:195)\n\tat org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:140)\n\tat org.apache.tomcat.websocket.server.WsFilter.doFilter(WsFilter.java:51)\n\tat org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:164)\n\tat org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:140)\n\tat org.springframework.web.filter.RequestContextFilter.doFilterInternal(RequestContextFilter.java:100)\n\tat org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:116)\n\tat org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:164)\n\tat org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:140)\n\tat org.springframework.web.filter.FormContentFilter.doFilterInternal(FormContentFilter.java:93)\n\tat org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:116)\n\tat org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:164)\n\tat org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:140)\n\tat org.springframework.web.filter.ServerHttpObservationFilter.doFilterInternal(ServerHttpObservationFilter.java:113)\n\tat org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:116)\n\tat org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:164)\n\tat org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:140)\n\tat org.springframework.web.filter.CharacterEncodingFilter.doFilterInternal(CharacterEncodingFilter.java:201)\n\tat org.springframework.web.filter.OncePerRequestFilter.doFilter(OncePerRequestFilter.java:116)\n\tat org.apache.catalina.core.ApplicationFilterChain.internalDoFilter(ApplicationFilterChain.java:164)\n\tat org.apache.catalina.core.ApplicationFilterChain.doFilter(ApplicationFilterChain.java:140)\n\tat org.apache.catalina.core.StandardWrapperValve.invoke(StandardWrapperValve.java:167)\n\tat org.apache.catalina.core.StandardContextValve.invoke(StandardContextValve.java:90)\n\tat org.apache.catalina.authenticator.AuthenticatorBase.invoke(AuthenticatorBase.java:483)\n\tat org.apache.catalina.core.StandardHostValve.invoke(StandardHostValve.java:115)\n\tat org.apache.catalina.valves.ErrorReportValve.invoke(ErrorReportValve.java:93)\n\tat org.apache.catalina.core.StandardEngineValve.invoke(StandardEngineValve.java:74)\n\tat org.apache.catalina.valves.RemoteIpValve.invoke(RemoteIpValve.java:731)\n\tat org.apache.catalina.connector.CoyoteAdapter.service(CoyoteAdapter.java:344)\n\tat org.apache.coyote.http11.Http11Processor.service(Http11Processor.java:384)\n\tat org.apache.coyote.AbstractProcessorLight.process(AbstractProcessorLight.java:63)\n\tat org.apache.coyote.AbstractProtocol$ConnectionHandler.process(AbstractProtocol.java:905)\n\tat org.apache.tomcat.util.net.NioEndpoint$SocketProcessor.doRun(NioEndpoint.java:1741)\n\tat org.apache.tomcat.util.net.SocketProcessorBase.run(SocketProcessorBase.java:52)\n\tat org.apache.tomcat.util.threads.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1190)\n\tat org.apache.tomcat.util.threads.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:659)\n\tat org.apache.tomcat.util.threads.TaskThread$WrappingRunnable.run(TaskThread.java:63)\n\tat java.base/java.lang.Thread.run(Unknown Source)\n","appName":"recon-dashboard-api","traceId":"f4f04f3dca90d90ba77770c4917f73b3","spanId":"b58563680a70a26a","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:09:42.486024661Z","@version":"1","message":"Writing [ApiErrorResponse[timestamp=2026-05-10T09:09:42.485479101Z, status=500, error=Internal Server Error,  (truncated)...]","logger_name":"org.springframework.web.servlet.mvc.method.annotation.HttpEntityMethodProcessor","thread_name":"http-nio-8083-exec-8","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"f4f04f3dca90d90ba77770c4917f73b3","spanId":"b58563680a70a26a","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:09:42.486534474Z","@version":"1","message":"Completed 500 INTERNAL_SERVER_ERROR","logger_name":"org.springframework.web.servlet.DispatcherServlet","thread_name":"http-nio-8083-exec-8","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"f4f04f3dca90d90ba77770c4917f73b3","spanId":"b58563680a70a26a","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:11:15.576289661Z","@version":"1","message":"GET \"/api/reconciliation/status\", parameters={}","logger_name":"org.springframework.web.servlet.DispatcherServlet","thread_name":"http-nio-8083-exec-6","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"6c37797c8f413b4bb40aa9046c326033","spanId":"15d130ccc96c5eba","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:11:15.576675498Z","@version":"1","message":"Mapped to com.ntt.recon.api.ReconciliationController#status()","logger_name":"org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping","thread_name":"http-nio-8083-exec-6","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"6c37797c8f413b4bb40aa9046c326033","spanId":"15d130ccc96c5eba","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:11:15.578573393Z","@version":"1","message":"select count(rr1_0.id) from reconciliation_record rr1_0","logger_name":"org.hibernate.SQL","thread_name":"http-nio-8083-exec-6","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"6c37797c8f413b4bb40aa9046c326033","spanId":"15d130ccc96c5eba","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:11:15.583649626Z","@version":"1","message":"Registration of TableGroup [StandardTableGroup(com.ntt.recon.domain.ReconciliationRecord(5))] with identifierForTableGroup [com.ntt.recon.domain.ReconciliationRecord] for NavigablePath [com.ntt.recon.domain.ReconciliationRecord] ","logger_name":"org.hibernate.orm.sql.ast.create","thread_name":"http-nio-8083-exec-6","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"6c37797c8f413b4bb40aa9046c326033","spanId":"15d130ccc96c5eba","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:11:15.584053589Z","@version":"1","message":"Determining mapping-model type for SqmPath : SqmBasicValuedSimplePath(com.ntt.recon.domain.ReconciliationRecord(5).status) ","logger_name":"org.hibernate.query.sqm.sql.BaseSqmToSqlAstConverter","thread_name":"http-nio-8083-exec-6","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"6c37797c8f413b4bb40aa9046c326033","spanId":"15d130ccc96c5eba","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:11:15.584641503Z","@version":"1","message":"SQL AST Tree:\n    SelectStatement {\n      FromClause {\n        StandardTableGroup (rr1 : com.ntt.recon.domain.ReconciliationRecord(5)) {\n          primaryTableReference : reconciliation_record as rr1_0\n        }\n      }\n    }\n","logger_name":"org.hibernate.orm.sql.ast.tree","thread_name":"http-nio-8083-exec-6","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"6c37797c8f413b4bb40aa9046c326033","spanId":"15d130ccc96c5eba","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:11:15.585083013Z","@version":"1","message":"select count(rr1_0.id) from reconciliation_record rr1_0 where rr1_0.status=?","logger_name":"org.hibernate.SQL","thread_name":"http-nio-8083-exec-6","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"6c37797c8f413b4bb40aa9046c326033","spanId":"15d130ccc96c5eba","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:11:15.591100133Z","@version":"1","message":"Registration of TableGroup [StandardTableGroup(com.ntt.recon.domain.ReconciliationRecord(5))] with identifierForTableGroup [com.ntt.recon.domain.ReconciliationRecord] for NavigablePath [com.ntt.recon.domain.ReconciliationRecord] ","logger_name":"org.hibernate.orm.sql.ast.create","thread_name":"http-nio-8083-exec-6","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"6c37797c8f413b4bb40aa9046c326033","spanId":"15d130ccc96c5eba","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:11:15.591691705Z","@version":"1","message":"Determining mapping-model type for SqmPath : SqmBasicValuedSimplePath(com.ntt.recon.domain.ReconciliationRecord(5).status) ","logger_name":"org.hibernate.query.sqm.sql.BaseSqmToSqlAstConverter","thread_name":"http-nio-8083-exec-6","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"6c37797c8f413b4bb40aa9046c326033","spanId":"15d130ccc96c5eba","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:11:15.59252776Z","@version":"1","message":"SQL AST Tree:\n    SelectStatement {\n      FromClause {\n        StandardTableGroup (rr1 : com.ntt.recon.domain.ReconciliationRecord(5)) {\n          primaryTableReference : reconciliation_record as rr1_0\n        }\n      }\n    }\n","logger_name":"org.hibernate.orm.sql.ast.tree","thread_name":"http-nio-8083-exec-6","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"6c37797c8f413b4bb40aa9046c326033","spanId":"15d130ccc96c5eba","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:11:15.593062823Z","@version":"1","message":"select count(rr1_0.id) from reconciliation_record rr1_0 where rr1_0.status=?","logger_name":"org.hibernate.SQL","thread_name":"http-nio-8083-exec-6","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"6c37797c8f413b4bb40aa9046c326033","spanId":"15d130ccc96c5eba","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:11:15.596501714Z","@version":"1","message":"Registration of TableGroup [StandardTableGroup(com.ntt.recon.domain.ReconciliationRecord(5))] with identifierForTableGroup [com.ntt.recon.domain.ReconciliationRecord] for NavigablePath [com.ntt.recon.domain.ReconciliationRecord] ","logger_name":"org.hibernate.orm.sql.ast.create","thread_name":"http-nio-8083-exec-6","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"6c37797c8f413b4bb40aa9046c326033","spanId":"15d130ccc96c5eba","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T09:11:15.596762088Z","@version":"1","message":"Determining mapping-model type for SqmPath : SqmBasicValuedSimplePath(com.ntt.recon.domain.ReconciliationRecord(5).status) ","logger_name":"org.hibernate.query.sqm.sql.BaseSqmToSqlAstConverter","thread_name":"http-nio-8083-exec-6","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"6c37797c8f413b4bb40aa9046c326033","spanId":"15d130ccc96c5eba","application":"recon-dashboard-api"}
+
+
+==========================================================================================
+PODS AFTER SCENARIO
+==========================================================================================
+COMMAND: kubectl get pods -n recon-platform -o wide
+NAME                                   READY   STATUS    RESTARTS   AGE   IP               NODE                                                NOMINATED NODE   READINESS GATES
+ibm-mq-0                               1/1     Running   0          96m   192.168.26.214   ip-192-168-23-26.ap-southeast-1.compute.internal    <none>           <none>
+recon-consumer-app-784f77dff8-ktzvg    1/1     Running   0          86m   192.168.41.165   ip-192-168-59-106.ap-southeast-1.compute.internal   <none>           <none>
+recon-dashboard-api-7c7dcc4768-4vprs   1/1     Running   0          86m   192.168.75.43    ip-192-168-90-90.ap-southeast-1.compute.internal    <none>           <none>
+recon-producer-app-7878df768-p65k4     1/1     Running   0          86m   192.168.41.193   ip-192-168-59-106.ap-southeast-1.compute.internal   <none>           <none>
+
+==========================================================================================
+DEPLOYMENTS AFTER SCENARIO
+==========================================================================================
+COMMAND: kubectl get deployments -n recon-platform
+NAME                  READY   UP-TO-DATE   AVAILABLE   AGE
+recon-consumer-app    1/1     1            1           43h
+recon-dashboard-api   1/1     1            1           43h
+recon-producer-app    1/1     1            1           43h
+
+==========================================================================================
+PROOF COUNTS FROM EVIDENCE LOG
+==========================================================================================
+Simulated database deadlock=2
+message_moved_to_retry=1
+message_moved_to_backout=1
+database_circuit_open=1
+CallNotPermittedException=1
+transaction_published=81
+CompletedAt=2026-05-10T17:18:12.5654478+08:00

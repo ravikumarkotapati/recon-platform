@@ -1,0 +1,54 @@
+SCENARIO 07 - MESSAGE REPLAY
+Executed: 2026-05-10T21:03:54+08:00
+Purpose: Demonstrate manual replay mechanism through Dashboard API into IBM MQ RECON.IN and successful consumer processing.
+
+Isolation:
+- recon-producer-app scaled to 0 before replay to avoid background noise.
+- recon-producer-app restored to 1 after replay.
+
+Replay request:
+- API: POST /api/reconciliation/replay
+- originalCorrelationId: original-failed-20260510210412
+- transactionId: replay-demo-20260510210412
+- simulationMode: NORMAL
+- intentionallyInvalid: false
+
+Replay API response:
+{
+  "replayCorrelationId": "replay-be8984b5-9618-4c5b-bae0-3394cd2f2d1b"
+}
+
+Dashboard API publish proof:
+{"@timestamp":"2026-05-10T13:04:19.894573761Z","@version":"1","message":"Sending created message: \n  JMSMessage class: jms_text\n  JMSType:          null\n  JMSDeliveryMode:  2\n  JMSDeliveryDelay: 0\n  JMSDeliveryTime:  0\n  JMSExpiration:    0\n  JMSPriority:      4\n  JMSMessageID:     null\n  JMSTimestamp:     0\n  JMSCorrelationID: replay-be8984b5-9618-4c5b-bae0-3394cd2f2d1b\n  JMSDestination:   null\n  JMSReplyTo:       null\n  JMSRedelivered:   false\n    _type: com.ntt.recon.domain.ReconciliationTransaction\n    originalCorrelationId: original-failed-20260510210412\n    replayed: true\n{\"transactionId\":\"replay-demo-20260510210412\",\"sourceSystem\":\"REPLAY_DEMO\",\"accountNumber\":\"ACC-REPL ...","logger_name":"org.springframework.jms.core.JmsTemplate","thread_name":"http-nio-8083-exec-5","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"055fa4170717211ae59f0224f507c486","spanId":"e85ed84d9363297d","application":"recon-dashboard-api"}
+{"@timestamp":"2026-05-10T13:04:19.976903284Z","@version":"1","message":"Writing [{replayCorrelationId=replay-be8984b5-9618-4c5b-bae0-3394cd2f2d1b}]","logger_name":"org.springframework.web.servlet.mvc.method.annotation.RequestResponseBodyMethodProcessor","thread_name":"http-nio-8083-exec-5","level":"DEBUG","level_value":10000,"appName":"recon-dashboard-api","traceId":"055fa4170717211ae59f0224f507c486","spanId":"e85ed84d9363297d","application":"recon-dashboard-api"}
+
+Consumer processing proof:
+{"@timestamp":"2026-05-10T13:04:19.973843591Z","@version":"1","message":"event=transaction_consumed transactionId=replay-demo-20260510210412","logger_name":"com.ntt.recon.service.ConsumerListener","thread_name":"org.springframework.jms.JmsListenerEndpointContainer#1-4","level":"INFO","level_value":20000,"appName":"recon-consumer-app","traceId":"8679599c0b1cca8c070e40192cd82041","spanId":"2b578e93c14134f9","correlationId":"replay-be8984b5-9618-4c5b-bae0-3394cd2f2d1b","application":"recon-consumer-app"}
+
+Database/status proof:
+Before status:
+{
+  "failed": 726,
+  "total": 41163,
+  "reconciled": 36374,
+  "invalid": 4063,
+  "dlq": 0
+}
+After status:
+{
+  "failed": 726,
+  "total": 41164,
+  "reconciled": 36375,
+  "invalid": 4063,
+  "dlq": 0
+}
+Result:
+- total increased from 41163 to 41164.
+- reconciled increased from 36374 to 36375.
+- input/retry/DLQ queues remained drained after replay.
+
+Screenshot to save:
+E:\workspace\evidence\scenario-07-message-replay\screenshot.png
+
+Screenshot content:
+Grafana Reconciliation Platform SRE dashboard, time range Last 5 minutes, showing Processed in Selected Range and Reconciliation Outcomes after replay.

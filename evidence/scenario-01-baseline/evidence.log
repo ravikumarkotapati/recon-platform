@@ -1,0 +1,200 @@
+
+============================================================
+SCENARIO 01 - BASELINE NORMAL FLOW
+============================================================
+Started: 2026-05-10T16:53:59.0236182+08:00
+Goal: prove producer publishes, consumer consumes, dashboard status updates, and queues are healthy.
+
+============================================================
+KUBERNETES POD STATUS
+============================================================
+COMMAND: kubectl get pods -n recon-platform
+NAME                                   READY   STATUS    RESTARTS   AGE
+ibm-mq-0                               1/1     Running   0          72m
+recon-consumer-app-784f77dff8-ktzvg    1/1     Running   0          62m
+recon-dashboard-api-7c7dcc4768-4vprs   1/1     Running   0          62m
+recon-producer-app-7878df768-p65k4     1/1     Running   0          62m
+
+============================================================
+KUBERNETES SERVICE STATUS
+============================================================
+COMMAND: kubectl get svc -n recon-platform
+NAME                  TYPE           CLUSTER-IP       EXTERNAL-IP                                                                          PORT(S)                      AGE
+ibm-mq                ClusterIP      10.100.195.132   <none>                                                                               1414/TCP,9443/TCP,9157/TCP   43h
+recon-consumer-app    ClusterIP      10.100.92.108    <none>                                                                               8082/TCP                     43h
+recon-dashboard-api   LoadBalancer   10.100.202.55    a13b06177d94b47268238309583e00ff-68cc9e10853c753c.elb.ap-southeast-1.amazonaws.com   80:30641/TCP                 43h
+recon-producer-app    ClusterIP      10.100.65.150    <none>                                                                               8081/TCP                     43h
+
+============================================================
+START TEMPORARY PORT FORWARDS
+============================================================
+Producer: kubectl port-forward -n recon-platform svc/recon-producer-app 8081:8081
+Dashboard: kubectl port-forward -n recon-platform svc/recon-dashboard-api 8083:80
+
+============================================================
+RESET SIMULATION TO NORMAL
+============================================================
+{
+  "mode": "NORMAL",
+  "availableModes": [
+    "NORMAL",
+    "DB_DEADLOCK",
+    "MQ_OUTAGE",
+    "CONSUMER_CRASH",
+    "SLOW_DATABASE",
+    "DUPLICATE_MESSAGE"
+  ]
+}
+
+============================================================
+CURRENT SIMULATION MODE
+============================================================
+{
+  "mode": "NORMAL",
+  "availableModes": [
+    "NORMAL",
+    "DB_DEADLOCK",
+    "MQ_OUTAGE",
+    "CONSUMER_CRASH",
+    "SLOW_DATABASE",
+    "DUPLICATE_MESSAGE"
+  ]
+}
+
+============================================================
+WAIT FOR MESSAGE FLOW
+============================================================
+Waiting 60 seconds for producer and consumer to process messages...
+
+============================================================
+DASHBOARD STATUS
+============================================================
+{
+  "failed": 0,
+  "total": 12096,
+  "reconciled": 10919,
+  "invalid": 1177,
+  "dlq": 0
+}
+
+============================================================
+QUEUE BACKLOG VISIBILITY
+============================================================
+{
+  "inputQueue": {
+    "available": true,
+    "depth": 0,
+    "name": "RECON.IN"
+  },
+  "deadLetterQueue": {
+    "available": true,
+    "depth": 0,
+    "name": "SYSTEM.DEAD.LETTER.QUEUE"
+  },
+  "retryQueue": {
+    "available": true,
+    "depth": 0,
+    "name": "RECON.RETRY"
+  },
+  "backoutQueue": {
+    "available": true,
+    "depth": 0,
+    "name": "RECON.BACKOUT"
+  }
+}
+
+============================================================
+STOP TEMPORARY PORT FORWARDS
+============================================================
+Stopped producer port-forward PID 19988
+Stopped dashboard port-forward PID 20116
+
+============================================================
+PRODUCER LOG PROOF - PUBLISHED MESSAGES
+============================================================
+COMMAND: kubectl logs -n recon-platform deploy/recon-producer-app --since=5m | Select-String -Pattern 'transaction_published' | Select-Object -First 30
+
+{"@timestamp":"2026-05-10T08:50:21.061535234Z","@version":"1","message":"event=transaction_published transactionId=txn-4ae99bef-8c92-49df-8113-ea44ab3446bd queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T08:50:21.065569562Z","@version":"1","message":"event=transaction_published transactionId=txn-4ae99bef-8c92-49df-8113-ea44ab3446bd queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T08:50:21.071052261Z","@version":"1","message":"event=transaction_published transactionId=txn-e6c02f37-cb10-4a5e-8c1f-c1d20354d90c queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T08:50:22.059795099Z","@version":"1","message":"event=transaction_published transactionId=txn-17c8bded-2271-4ceb-a149-2a658303543d queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T08:50:22.0643722Z","@version":"1","message":"event=transaction_published transactionId=txn-17c8bded-2271-4ceb-a149-2a658303543d queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T08:50:22.067359838Z","@version":"1","message":"event=transaction_published transactionId=txn-a72cbf8c-ed6b-4784-b2fd-3301784f0ae7 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T08:50:23.060219037Z","@version":"1","message":"event=transaction_published transactionId=txn-b4a79cda-3662-40b0-842e-8143c0d023aa queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T08:50:23.063846636Z","@version":"1","message":"event=transaction_published transactionId=txn-b4a79cda-3662-40b0-842e-8143c0d023aa queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T08:50:23.068876027Z","@version":"1","message":"event=transaction_published transactionId=txn-cb71cc55-8852-472a-abd4-30deb6a479fd queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T08:50:24.060686222Z","@version":"1","message":"event=transaction_published transactionId=txn-f343c2d7-d170-4d6f-880a-5f94c2eaaaeb queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T08:50:24.064363752Z","@version":"1","message":"event=transaction_published transactionId=txn-f343c2d7-d170-4d6f-880a-5f94c2eaaaeb queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T08:50:24.068154284Z","@version":"1","message":"event=transaction_published transactionId=txn-7d7fe9fd-c63c-40d9-bc67-a0910970715f queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T08:50:25.06072351Z","@version":"1","message":"event=transaction_published transactionId=txn-3b50c914-3dbd-4510-b248-42dd5578481c queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T08:50:25.066049587Z","@version":"1","message":"event=transaction_published transactionId=txn-3b50c914-3dbd-4510-b248-42dd5578481c queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T08:50:25.070271516Z","@version":"1","message":"event=transaction_published transactionId=txn-25bb6e4b-da5b-4836-af07-d81ebd9e54a1 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T08:50:26.062275609Z","@version":"1","message":"event=transaction_published transactionId=txn-094671a7-2836-4020-8815-369729f8c270 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T08:50:26.067090845Z","@version":"1","message":"event=transaction_published transactionId=txn-094671a7-2836-4020-8815-369729f8c270 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T08:50:26.071522095Z","@version":"1","message":"event=transaction_published transactionId=txn-2a764354-e599-4b98-bcec-da940dc90b28 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T08:50:27.060767713Z","@version":"1","message":"event=transaction_published transactionId=txn-5df90f03-c7fa-4e42-908d-c02954755a90 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T08:50:27.065114346Z","@version":"1","message":"event=transaction_published transactionId=txn-5df90f03-c7fa-4e42-908d-c02954755a90 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T08:50:27.071561476Z","@version":"1","message":"event=transaction_published transactionId=txn-a7a0d528-74f9-4221-aa5a-5485077858c1 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T08:50:28.060651049Z","@version":"1","message":"event=transaction_published transactionId=txn-16f82a0e-8e6f-4885-9e7c-428c59789851 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T08:50:28.06829484Z","@version":"1","message":"event=transaction_published transactionId=txn-16f82a0e-8e6f-4885-9e7c-428c59789851 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T08:50:28.0716608Z","@version":"1","message":"event=transaction_published transactionId=txn-7cfcfa0d-8699-4d47-af68-9ff0242115b1 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T08:50:29.059568546Z","@version":"1","message":"event=transaction_published transactionId=txn-2af58fc8-be29-4b87-81b2-eedb1549c094 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T08:50:29.064770256Z","@version":"1","message":"event=transaction_published transactionId=txn-2af58fc8-be29-4b87-81b2-eedb1549c094 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T08:50:29.068164489Z","@version":"1","message":"event=transaction_published transactionId=txn-2f53b6cb-2907-48f4-ba06-9649dc2e78ee queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T08:50:30.063474007Z","@version":"1","message":"event=transaction_published transactionId=txn-6189701e-abb5-4c63-b244-6d41d1dbdb16 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T08:50:30.067637058Z","@version":"1","message":"event=transaction_published transactionId=txn-6189701e-abb5-4c63-b244-6d41d1dbdb16 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T08:50:30.072253798Z","@version":"1","message":"event=transaction_published transactionId=txn-ff120a66-586d-4feb-9cad-f9bbb00ad186 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+
+
+============================================================
+CONSUMER LOG PROOF - CONSUMED MESSAGES
+============================================================
+COMMAND: kubectl logs -n recon-platform deploy/recon-consumer-app --since=5m | Select-String -Pattern 'transaction_consumed' | Select-Object -First 30
+
+{"@timestamp":"2026-05-10T08:55:06.062514898Z","@version":"1","message":"event=transaction_consumed transactionId=txn-afc093fe-e0bb-4375-ba89-454a4f3f8556","logger_name":"com.ntt.recon.service.ConsumerListener","thread_name":"org.springframework.jms.JmsListenerEndpointContainer#1-8","level":"INFO","level_value":20000,"appName":"recon-consumer-app","traceId":"6faadd5929cb30994989cd54a6f832c7","spanId":"0ffe5e710533bdf8","correlationId":"8377d679-4f93-4c09-9bb3-c3631574d512","application":"recon-consumer-app"}
+{"@timestamp":"2026-05-10T08:55:06.065694282Z","@version":"1","message":"event=transaction_consumed transactionId=txn-126a8810-79df-44a2-ba86-4edf35db23b5","logger_name":"com.ntt.recon.service.ConsumerListener","thread_name":"org.springframework.jms.JmsListenerEndpointContainer#1-2","level":"INFO","level_value":20000,"appName":"recon-consumer-app","traceId":"6faadd5929cb30994989cd54a6f832c7","spanId":"0ffe5e710533bdf8","correlationId":"184e7d25-522b-47d7-9b97-bf083e7d7773","application":"recon-consumer-app"}
+{"@timestamp":"2026-05-10T08:55:07.061512755Z","@version":"1","message":"event=transaction_consumed transactionId=txn-580f8e87-04df-450e-8690-4089aa1e8330","logger_name":"com.ntt.recon.service.ConsumerListener","thread_name":"org.springframework.jms.JmsListenerEndpointContainer#1-3","level":"INFO","level_value":20000,"appName":"recon-consumer-app","traceId":"e9e40cc32df412a2d0f5d9dc19b686b5","spanId":"fa0d059f3031804c","correlationId":"ce1ecdd3-6cbb-47f7-bfa1-b1add1e40d71","application":"recon-consumer-app"}
+{"@timestamp":"2026-05-10T08:55:07.066089805Z","@version":"1","message":"event=transaction_consumed transactionId=txn-1ca9c4e8-7b43-40fc-8962-1a38d197ee90","logger_name":"com.ntt.recon.service.ConsumerListener","thread_name":"org.springframework.jms.JmsListenerEndpointContainer#1-1","level":"INFO","level_value":20000,"appName":"recon-consumer-app","traceId":"e9e40cc32df412a2d0f5d9dc19b686b5","spanId":"fa0d059f3031804c","correlationId":"c770c515-0fe9-4441-a57c-f989e0c4b5ce","application":"recon-consumer-app"}
+{"@timestamp":"2026-05-10T08:55:08.06073353Z","@version":"1","message":"event=transaction_consumed transactionId=txn-25e6c52a-bbc9-4671-8dea-6e7cafb059f8","logger_name":"com.ntt.recon.service.ConsumerListener","thread_name":"org.springframework.jms.JmsListenerEndpointContainer#1-7","level":"INFO","level_value":20000,"appName":"recon-consumer-app","traceId":"5f7ae10953143d136e13acbd53ddba88","spanId":"5f2b58eb565124d3","correlationId":"02f04f48-b3ec-4c97-8df8-6ce699add97f","application":"recon-consumer-app"}
+{"@timestamp":"2026-05-10T08:55:08.064721482Z","@version":"1","message":"event=transaction_consumed transactionId=txn-edf3fe4f-cd82-41c0-a148-1d6b020aa365","logger_name":"com.ntt.recon.service.ConsumerListener","thread_name":"org.springframework.jms.JmsListenerEndpointContainer#1-6","level":"INFO","level_value":20000,"appName":"recon-consumer-app","traceId":"5f7ae10953143d136e13acbd53ddba88","spanId":"5f2b58eb565124d3","correlationId":"82eb7f35-53c0-4f72-bdff-8ce4c8c81827","application":"recon-consumer-app"}
+{"@timestamp":"2026-05-10T08:55:09.06083Z","@version":"1","message":"event=transaction_consumed transactionId=txn-e3787517-7b18-46d2-990a-3f3bc90a6f9d","logger_name":"com.ntt.recon.service.ConsumerListener","thread_name":"org.springframework.jms.JmsListenerEndpointContainer#1-4","level":"INFO","level_value":20000,"appName":"recon-consumer-app","traceId":"1b0f8e12d6d1226cf23a89ef5cafd5b3","spanId":"aa33b2617d046262","correlationId":"137d3385-8522-402b-9766-85399896e825","application":"recon-consumer-app"}
+{"@timestamp":"2026-05-10T08:55:09.064676145Z","@version":"1","message":"event=transaction_consumed transactionId=txn-62a11c2c-60b7-467e-be8b-d65c0fa0a43c","logger_name":"com.ntt.recon.service.ConsumerListener","thread_name":"org.springframework.jms.JmsListenerEndpointContainer#1-5","level":"INFO","level_value":20000,"appName":"recon-consumer-app","traceId":"1b0f8e12d6d1226cf23a89ef5cafd5b3","spanId":"aa33b2617d046262","correlationId":"c0692793-6dc1-49fc-92af-0305f055da4c","application":"recon-consumer-app"}
+{"@timestamp":"2026-05-10T08:55:10.060652148Z","@version":"1","message":"event=transaction_consumed transactionId=txn-9f07fe6b-6ea9-40ec-a299-85a64c88805a","logger_name":"com.ntt.recon.service.ConsumerListener","thread_name":"org.springframework.jms.JmsListenerEndpointContainer#1-8","level":"INFO","level_value":20000,"appName":"recon-consumer-app","traceId":"d2978f9999848e56149c017039490863","spanId":"861fa942299cdd75","correlationId":"9dd8d5fc-e559-479a-a485-8e082e9b23ec","application":"recon-consumer-app"}
+{"@timestamp":"2026-05-10T08:55:10.066016515Z","@version":"1","message":"event=transaction_consumed transactionId=txn-27f92d09-1e91-4442-bf8f-ec182480eecd","logger_name":"com.ntt.recon.service.ConsumerListener","thread_name":"org.springframework.jms.JmsListenerEndpointContainer#1-2","level":"INFO","level_value":20000,"appName":"recon-consumer-app","traceId":"d2978f9999848e56149c017039490863","spanId":"861fa942299cdd75","correlationId":"17e3f1fd-95b3-49d2-bd04-10bf49631618","application":"recon-consumer-app"}
+{"@timestamp":"2026-05-10T08:55:11.060878425Z","@version":"1","message":"event=transaction_consumed transactionId=txn-ced99899-e527-4c23-88bc-fb23a6ebdd2d","logger_name":"com.ntt.recon.service.ConsumerListener","thread_name":"org.springframework.jms.JmsListenerEndpointContainer#1-3","level":"INFO","level_value":20000,"appName":"recon-consumer-app","traceId":"358960861385730917df71ca3b65b963","spanId":"2229b2081713f13a","correlationId":"0d2ac18e-9c64-4e57-8b83-c94aaacfaeec","application":"recon-consumer-app"}
+{"@timestamp":"2026-05-10T08:55:11.065467265Z","@version":"1","message":"event=transaction_consumed transactionId=txn-b8bc7a5c-1bfb-4caf-b000-a0e69563547b","logger_name":"com.ntt.recon.service.ConsumerListener","thread_name":"org.springframework.jms.JmsListenerEndpointContainer#1-1","level":"INFO","level_value":20000,"appName":"recon-consumer-app","traceId":"358960861385730917df71ca3b65b963","spanId":"2229b2081713f13a","correlationId":"9c33fe36-a8db-434d-9a67-d842c2f61ee2","application":"recon-consumer-app"}
+{"@timestamp":"2026-05-10T08:55:12.061762539Z","@version":"1","message":"event=transaction_consumed transactionId=txn-00e19bec-88e0-490f-87d4-520bedd109e0","logger_name":"com.ntt.recon.service.ConsumerListener","thread_name":"org.springframework.jms.JmsListenerEndpointContainer#1-7","level":"INFO","level_value":20000,"appName":"recon-consumer-app","traceId":"8513e1770bc2831930d62c6a47875b23","spanId":"3d80851fe23836f3","correlationId":"34ff5f03-5d15-4d08-a305-76bc62e655e4","application":"recon-consumer-app"}
+{"@timestamp":"2026-05-10T08:55:12.066371147Z","@version":"1","message":"event=transaction_consumed transactionId=txn-ff036add-1f4b-45c5-9fac-8de9f7b19e1b","logger_name":"com.ntt.recon.service.ConsumerListener","thread_name":"org.springframework.jms.JmsListenerEndpointContainer#1-6","level":"INFO","level_value":20000,"appName":"recon-consumer-app","traceId":"8513e1770bc2831930d62c6a47875b23","spanId":"3d80851fe23836f3","correlationId":"d6b20a77-426b-4354-a3e7-3df495455fbd","application":"recon-consumer-app"}
+{"@timestamp":"2026-05-10T08:55:13.062523885Z","@version":"1","message":"event=transaction_consumed transactionId=txn-e13b31eb-97a5-4f43-8cfc-3f6d9acfc833","logger_name":"com.ntt.recon.service.ConsumerListener","thread_name":"org.springframework.jms.JmsListenerEndpointContainer#1-4","level":"INFO","level_value":20000,"appName":"recon-consumer-app","traceId":"4c2478fa853e08089c10bef1d6a9df40","spanId":"e879e9dad52b0c30","correlationId":"b740f2dc-d2d2-4ea0-ad08-5d0f994ab15a","application":"recon-consumer-app"}
+{"@timestamp":"2026-05-10T08:55:13.06699856Z","@version":"1","message":"event=transaction_consumed transactionId=txn-a7a79dfb-1669-42a2-9fc7-b1a0ee3e9499","logger_name":"com.ntt.recon.service.ConsumerListener","thread_name":"org.springframework.jms.JmsListenerEndpointContainer#1-5","level":"INFO","level_value":20000,"appName":"recon-consumer-app","traceId":"4c2478fa853e08089c10bef1d6a9df40","spanId":"e879e9dad52b0c30","correlationId":"abc2a427-2f73-4c95-9364-bce392bf0000","application":"recon-consumer-app"}
+{"@timestamp":"2026-05-10T08:55:14.061934005Z","@version":"1","message":"event=transaction_consumed transactionId=txn-078276eb-f316-4c2f-963b-e8278b762b6a","logger_name":"com.ntt.recon.service.ConsumerListener","thread_name":"org.springframework.jms.JmsListenerEndpointContainer#1-8","level":"INFO","level_value":20000,"appName":"recon-consumer-app","traceId":"2bb2203116fb6e90b5bb22411d9a12c4","spanId":"7d5de7e7d57c6c24","correlationId":"721ba402-2976-497d-82e5-25295910c98a","application":"recon-consumer-app"}
+{"@timestamp":"2026-05-10T08:55:14.065616636Z","@version":"1","message":"event=transaction_consumed transactionId=txn-5e9e6647-bfd3-4da5-956b-fe968b430552","logger_name":"com.ntt.recon.service.ConsumerListener","thread_name":"org.springframework.jms.JmsListenerEndpointContainer#1-2","level":"INFO","level_value":20000,"appName":"recon-consumer-app","traceId":"2bb2203116fb6e90b5bb22411d9a12c4","spanId":"7d5de7e7d57c6c24","correlationId":"6a933e6b-d6ad-4a36-b6eb-dd98de8fa810","application":"recon-consumer-app"}
+{"@timestamp":"2026-05-10T08:55:15.064288073Z","@version":"1","message":"event=transaction_consumed transactionId=txn-c2802bcc-a447-4397-bd61-432826be13d2","logger_name":"com.ntt.recon.service.ConsumerListener","thread_name":"org.springframework.jms.JmsListenerEndpointContainer#1-3","level":"INFO","level_value":20000,"appName":"recon-consumer-app","traceId":"8f268999b4ec7f3e713ca03ab5012f59","spanId":"f170cd101521fc7a","correlationId":"c53584d0-5c76-41dd-b846-49169bfc8c59","application":"recon-consumer-app"}
+{"@timestamp":"2026-05-10T08:55:15.067850287Z","@version":"1","message":"event=transaction_consumed transactionId=txn-e7b35b06-16df-4bd1-afbc-4a320fabeb07","logger_name":"com.ntt.recon.service.ConsumerListener","thread_name":"org.springframework.jms.JmsListenerEndpointContainer#1-1","level":"INFO","level_value":20000,"appName":"recon-consumer-app","traceId":"8f268999b4ec7f3e713ca03ab5012f59","spanId":"f170cd101521fc7a","correlationId":"57352c6a-a912-458e-8633-6a4f256c31d1","application":"recon-consumer-app"}
+{"@timestamp":"2026-05-10T08:55:16.064510525Z","@version":"1","message":"event=transaction_consumed transactionId=txn-f4ede26f-fcd8-4ef6-8d35-7f1175ea5cb8","logger_name":"com.ntt.recon.service.ConsumerListener","thread_name":"org.springframework.jms.JmsListenerEndpointContainer#1-7","level":"INFO","level_value":20000,"appName":"recon-consumer-app","traceId":"9e349b50b132b39349e710250b6408b5","spanId":"e6be70f99cef456f","correlationId":"f3926a26-44e7-413e-b9ce-87df225b82fa","application":"recon-consumer-app"}
+{"@timestamp":"2026-05-10T08:55:16.068974071Z","@version":"1","message":"event=transaction_consumed transactionId=txn-ae6edd3d-821d-45d4-ba2f-c90fe172af23","logger_name":"com.ntt.recon.service.ConsumerListener","thread_name":"org.springframework.jms.JmsListenerEndpointContainer#1-6","level":"INFO","level_value":20000,"appName":"recon-consumer-app","traceId":"9e349b50b132b39349e710250b6408b5","spanId":"e6be70f99cef456f","correlationId":"2abdd7de-a2e2-4eeb-bc4a-c85130936e56","application":"recon-consumer-app"}
+{"@timestamp":"2026-05-10T08:55:17.06110062Z","@version":"1","message":"event=transaction_consumed transactionId=txn-ff2d2690-94ec-452d-b2bf-859eace7c314","logger_name":"com.ntt.recon.service.ConsumerListener","thread_name":"org.springframework.jms.JmsListenerEndpointContainer#1-4","level":"INFO","level_value":20000,"appName":"recon-consumer-app","traceId":"c9ba1a5a26ee743adb6d48e8b0a5df6c","spanId":"7ac3a590ad51d13a","correlationId":"7aea51ad-07b6-4f64-bf14-22d6b4219fb0","application":"recon-consumer-app"}
+{"@timestamp":"2026-05-10T08:55:17.063963309Z","@version":"1","message":"event=transaction_consumed transactionId=txn-a992f0d7-1187-459f-afb0-fb514c90549b","logger_name":"com.ntt.recon.service.ConsumerListener","thread_name":"org.springframework.jms.JmsListenerEndpointContainer#1-5","level":"INFO","level_value":20000,"appName":"recon-consumer-app","traceId":"c9ba1a5a26ee743adb6d48e8b0a5df6c","spanId":"7ac3a590ad51d13a","correlationId":"77f8f6ec-11e7-4f18-990c-627a54330f59","application":"recon-consumer-app"}
+{"@timestamp":"2026-05-10T08:55:18.062438069Z","@version":"1","message":"event=transaction_consumed transactionId=txn-8cf558dd-a5db-45cb-bf40-82ef3738be75","logger_name":"com.ntt.recon.service.ConsumerListener","thread_name":"org.springframework.jms.JmsListenerEndpointContainer#1-8","level":"INFO","level_value":20000,"appName":"recon-consumer-app","traceId":"a953e92f030f2b3bcdc0ee128a22e93a","spanId":"5841149c44a6c283","correlationId":"8cf383a7-291e-4620-8151-847b21f9e3d8","application":"recon-consumer-app"}
+{"@timestamp":"2026-05-10T08:55:18.068950412Z","@version":"1","message":"event=transaction_consumed transactionId=txn-3e3e92e4-e0e4-4b16-9824-3475cd58e74e","logger_name":"com.ntt.recon.service.ConsumerListener","thread_name":"org.springframework.jms.JmsListenerEndpointContainer#1-2","level":"INFO","level_value":20000,"appName":"recon-consumer-app","traceId":"a953e92f030f2b3bcdc0ee128a22e93a","spanId":"5841149c44a6c283","correlationId":"47e29092-923a-4741-a951-6c930e475995","application":"recon-consumer-app"}
+{"@timestamp":"2026-05-10T08:55:19.060012239Z","@version":"1","message":"event=transaction_consumed transactionId=txn-bf4fb2ba-d48f-478d-a354-82b3c4abd623","logger_name":"com.ntt.recon.service.ConsumerListener","thread_name":"org.springframework.jms.JmsListenerEndpointContainer#1-3","level":"INFO","level_value":20000,"appName":"recon-consumer-app","traceId":"3efd040a6724931c72c844756bb4cbbb","spanId":"60335fb5e64c35a3","correlationId":"9e3d162f-a4fa-4aaa-b91f-11fef418083d","application":"recon-consumer-app"}
+{"@timestamp":"2026-05-10T08:55:19.064156592Z","@version":"1","message":"event=transaction_consumed transactionId=txn-5a62cd56-d902-42ea-b364-43203b7a9f35","logger_name":"com.ntt.recon.service.ConsumerListener","thread_name":"org.springframework.jms.JmsListenerEndpointContainer#1-1","level":"INFO","level_value":20000,"appName":"recon-consumer-app","traceId":"3efd040a6724931c72c844756bb4cbbb","spanId":"60335fb5e64c35a3","correlationId":"8bdead8d-c415-47b2-8ece-32efe87c338a","application":"recon-consumer-app"}
+{"@timestamp":"2026-05-10T08:55:20.060597643Z","@version":"1","message":"event=transaction_consumed transactionId=txn-c2cbc570-fee4-44c4-be9a-8f5eec112330","logger_name":"com.ntt.recon.service.ConsumerListener","thread_name":"org.springframework.jms.JmsListenerEndpointContainer#1-7","level":"INFO","level_value":20000,"appName":"recon-consumer-app","traceId":"d4ed54fff5a4eed89cebf524b1dd9a0a","spanId":"46277fe032bf7aef","correlationId":"6b917c5b-1ffe-4ff2-8b92-b6ec17b71cbe","application":"recon-consumer-app"}
+{"@timestamp":"2026-05-10T08:55:20.06553067Z","@version":"1","message":"event=transaction_consumed transactionId=txn-2dbb729b-f955-49fb-918c-47407f0d257c","logger_name":"com.ntt.recon.service.ConsumerListener","thread_name":"org.springframework.jms.JmsListenerEndpointContainer#1-6","level":"INFO","level_value":20000,"appName":"recon-consumer-app","traceId":"d4ed54fff5a4eed89cebf524b1dd9a0a","spanId":"46277fe032bf7aef","correlationId":"b57156fd-4473-40c5-aaf3-18222281d52d","application":"recon-consumer-app"}
+
+
+============================================================
+FINAL POD STATUS
+============================================================
+COMMAND: kubectl get pods -n recon-platform
+NAME                                   READY   STATUS    RESTARTS   AGE
+ibm-mq-0                               1/1     Running   0          74m
+recon-consumer-app-784f77dff8-ktzvg    1/1     Running   0          63m
+recon-dashboard-api-7c7dcc4768-4vprs   1/1     Running   0          63m
+recon-producer-app-7878df768-p65k4     1/1     Running   0          63m
+
+============================================================
+SCENARIO RESULT
+============================================================
+Expected result: pods are Running, dashboard total/reconciled counts are greater than zero, queue depth is available, producer has transaction_published logs, consumer has transaction_consumed logs.
+Completed: 2026-05-10T16:55:18.4992841+08:00

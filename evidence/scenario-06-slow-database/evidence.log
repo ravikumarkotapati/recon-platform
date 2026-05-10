@@ -1,0 +1,561 @@
+
+==========================================================================================
+SCENARIO 06 - SLOW DATABASE AND RECOVERY
+==========================================================================================
+StartedAt=2026-05-10T17:48:40.9080009+08:00
+Expected proof: SLOW_DATABASE simulation enabled, consumer logs slow database processing, MQ queue depth may rise, reset to NORMAL, queue drains and processing resumes.
+
+==========================================================================================
+PODS BEFORE SLOW DATABASE
+==========================================================================================
+COMMAND: kubectl get pods -n recon-platform -o wide
+NAME                                   READY   STATUS    RESTARTS   AGE     IP               NODE                                                NOMINATED NODE   READINESS GATES
+ibm-mq-0                               1/1     Running   0          22m     192.168.13.38    ip-192-168-23-26.ap-southeast-1.compute.internal    <none>           <none>
+recon-consumer-app-784f77dff8-rqbx5    1/1     Running   0          9m16s   192.168.48.123   ip-192-168-59-106.ap-southeast-1.compute.internal   <none>           <none>
+recon-dashboard-api-7c7dcc4768-4vprs   1/1     Running   0          117m    192.168.75.43    ip-192-168-90-90.ap-southeast-1.compute.internal    <none>           <none>
+recon-producer-app-7878df768-p65k4     1/1     Running   0          117m    192.168.41.193   ip-192-168-59-106.ap-southeast-1.compute.internal   <none>           <none>
+
+==========================================================================================
+DEPLOYMENTS BEFORE SLOW DATABASE
+==========================================================================================
+COMMAND: kubectl get deployments -n recon-platform
+NAME                  READY   UP-TO-DATE   AVAILABLE   AGE
+recon-consumer-app    1/1     1            1           43h
+recon-dashboard-api   1/1     1            1           43h
+recon-producer-app    1/1     1            1           43h
+
+==========================================================================================
+MQ STATE BEFORE SLOW DATABASE
+==========================================================================================
+COMMAND: kubectl get pod ibm-mq-0 -n recon-platform
+NAME       READY   STATUS    RESTARTS   AGE
+ibm-mq-0   1/1     Running   0          22m
+
+==========================================================================================
+PORT FORWARD HEALTH
+==========================================================================================
+ProducerForwardReady=True
+DashboardForwardReady=True
+
+==========================================================================================
+BASELINE STATUS BEFORE SLOW DATABASE
+==========================================================================================
+REQUEST: Get http://localhost:28083/api/reconciliation/status
+{
+  "failed": 726,
+  "total": 17856,
+  "reconciled": 15416,
+  "invalid": 1714,
+  "dlq": 0
+}
+
+==========================================================================================
+BASELINE QUEUE DEPTH BEFORE SLOW DATABASE
+==========================================================================================
+REQUEST: Get http://localhost:28083/api/reconciliation/queues
+{
+  "inputQueue": {
+    "available": true,
+    "depth": 0,
+    "name": "RECON.IN"
+  },
+  "deadLetterQueue": {
+    "available": true,
+    "depth": 0,
+    "name": "SYSTEM.DEAD.LETTER.QUEUE"
+  },
+  "retryQueue": {
+    "available": true,
+    "depth": 0,
+    "name": "RECON.RETRY"
+  },
+  "backoutQueue": {
+    "available": true,
+    "depth": 726,
+    "name": "RECON.BACKOUT"
+  }
+}
+
+==========================================================================================
+RESET SIMULATION TO NORMAL BEFORE START
+==========================================================================================
+REQUEST: Post http://localhost:28081/api/simulation/reset
+{
+  "mode": "NORMAL",
+  "availableModes": [
+    "NORMAL",
+    "DB_DEADLOCK",
+    "MQ_OUTAGE",
+    "CONSUMER_CRASH",
+    "SLOW_DATABASE",
+    "DUPLICATE_MESSAGE"
+  ]
+}
+
+==========================================================================================
+ENABLE SLOW_DATABASE SIMULATION
+==========================================================================================
+REQUEST: Put http://localhost:28081/api/simulation/SLOW_DATABASE
+{
+  "mode": "SLOW_DATABASE",
+  "availableModes": [
+    "NORMAL",
+    "DB_DEADLOCK",
+    "MQ_OUTAGE",
+    "CONSUMER_CRASH",
+    "SLOW_DATABASE",
+    "DUPLICATE_MESSAGE"
+  ]
+}
+
+==========================================================================================
+CONFIRM SIMULATION MODE
+==========================================================================================
+REQUEST: Get http://localhost:28081/api/simulation
+{
+  "mode": "SLOW_DATABASE",
+  "availableModes": [
+    "NORMAL",
+    "DB_DEADLOCK",
+    "MQ_OUTAGE",
+    "CONSUMER_CRASH",
+    "SLOW_DATABASE",
+    "DUPLICATE_MESSAGE"
+  ]
+}
+
+==========================================================================================
+WAIT WINDOW - SLOW DATABASE ACTIVE
+==========================================================================================
+Waiting 180 seconds while database processing is intentionally slow. Expect slower consume rate and possible RECON.IN backlog.
+
+==========================================================================================
+STATUS DURING SLOW DATABASE
+==========================================================================================
+REQUEST: Get http://localhost:28083/api/reconciliation/status
+{
+  "failed": 726,
+  "total": 18244,
+  "reconciled": 15761,
+  "invalid": 1757,
+  "dlq": 0
+}
+
+==========================================================================================
+QUEUE DEPTH DURING SLOW DATABASE
+==========================================================================================
+REQUEST: Get http://localhost:28083/api/reconciliation/queues
+{
+  "inputQueue": {
+    "available": true,
+    "depth": 0,
+    "name": "RECON.IN"
+  },
+  "deadLetterQueue": {
+    "available": true,
+    "depth": 0,
+    "name": "SYSTEM.DEAD.LETTER.QUEUE"
+  },
+  "retryQueue": {
+    "available": true,
+    "depth": 0,
+    "name": "RECON.RETRY"
+  },
+  "backoutQueue": {
+    "available": true,
+    "depth": 726,
+    "name": "RECON.BACKOUT"
+  }
+}
+
+==========================================================================================
+FAILED TRANSACTIONS DURING SLOW DATABASE
+==========================================================================================
+REQUEST: Get http://localhost:28083/api/reconciliation/failed?page=0&size=10
+{
+  "content": [
+    {
+      "id": "eb4f9d33-3712-4c48-95bd-fb01d3d6aa95",
+      "transactionId": "txn-a72d8615-4f85-44e0-93af-799ecfb98911",
+      "correlationId": "7da472e5-a3e9-4091-abe4-ca1e83374356",
+      "status": "INVALID",
+      "failureReason": "Invalid transaction payload",
+      "retryCount": 0,
+      "updatedAt": "2026-05-09T04:53:28.343169Z"
+    },
+    {
+      "id": "4614b6a5-f925-4238-955d-7e399f53355e",
+      "transactionId": "txn-69013fd9-8a1b-4cb0-ba11-763d42593541",
+      "correlationId": "8eaf1f48-06ea-4c9a-9180-b3106e169024",
+      "status": "INVALID",
+      "failureReason": "Invalid transaction payload",
+      "retryCount": 0,
+      "updatedAt": "2026-05-09T04:53:28.338214Z"
+    },
+    {
+      "id": "67230a57-a39a-47e8-9b65-254c66b53bf3",
+      "transactionId": "txn-b3f42227-0373-4389-8081-44402e45484d",
+      "correlationId": "f6ab336e-1e18-4fed-b31a-566977a50f35",
+      "status": "INVALID",
+      "failureReason": "Invalid transaction payload",
+      "retryCount": 0,
+      "updatedAt": "2026-05-09T04:53:28.89122Z"
+    },
+    {
+      "id": "f1fb369f-41e8-4e13-b4d2-4dc0300b04fd",
+      "transactionId": "txn-7898008f-5a87-4eee-ae04-57480edbd9f4",
+      "correlationId": "19780008-cd5f-495b-a893-4b8702e40afd",
+      "status": "INVALID",
+      "failureReason": "Invalid transaction payload",
+      "retryCount": 0,
+      "updatedAt": "2026-05-09T04:53:28.955281Z"
+    },
+    {
+      "id": "0e3c15de-ebd2-4c7e-b5cb-e24ba3f2864d",
+      "transactionId": "txn-12a2459d-8a74-4f7a-9efa-6a6cedd89403",
+      "correlationId": "945e8ca2-7a4a-4b87-8656-0184f4555741",
+      "status": "INVALID",
+      "failureReason": "Invalid transaction payload",
+      "retryCount": 0,
+      "updatedAt": "2026-05-09T04:53:29.211305Z"
+    },
+    {
+      "id": "f8ce02aa-8ef2-4e17-8ee3-aafb08fae423",
+      "transactionId": "txn-640c4758-dfdc-42b7-93b0-43c41f494979",
+      "correlationId": "4978f807-9929-4df0-a52b-1b68c1ff3dfd",
+      "status": "INVALID",
+      "failureReason": "Invalid transaction payload",
+      "retryCount": 0,
+      "updatedAt": "2026-05-09T04:53:29.788561Z"
+    },
+    {
+      "id": "9c74ea86-53f5-40d7-89a2-b08ce100055b",
+      "transactionId": "txn-152a58c7-54cf-4f6f-b2f0-3a296867832f",
+      "correlationId": "6e511ba2-6ff2-4256-a215-037374a6dcc0",
+      "status": "INVALID",
+      "failureReason": "Invalid transaction payload",
+      "retryCount": 0,
+      "updatedAt": "2026-05-09T05:03:39.928542Z"
+    },
+    {
+      "id": "e6ba85b0-7a26-45d2-ae33-2c657c39a871",
+      "transactionId": "txn-471efe85-3882-4939-9582-19637fc597c8",
+      "correlationId": "3bed207d-7ba4-4d58-8e65-2c5118cfa8e4",
+      "status": "INVALID",
+      "failureReason": "Invalid transaction payload",
+      "retryCount": 0,
+      "updatedAt": "2026-05-09T05:16:17.926065Z"
+    },
+    {
+      "id": "adfa0e19-b57e-4cfd-8298-4e0adf53897c",
+      "transactionId": "txn-dd6d6332-f24b-41f8-bbe7-9e6f51e793bc",
+      "correlationId": "749153a2-cf80-41b0-a49e-e139fb024d58",
+      "status": "INVALID",
+      "failureReason": "Invalid transaction payload",
+      "retryCount": 0,
+      "updatedAt": "2026-05-09T05:16:21.9271Z"
+    },
+    {
+      "id": "fe2a6bb7-a9c0-4040-883e-b919fcf8b372",
+      "transactionId": "txn-12ab56e9-be4a-4369-9131-65422cdeee47",
+      "correlationId": "ac738076-2aef-4224-8bbd-a237f8656c83",
+      "status": "INVALID",
+      "failureReason": "Invalid transaction payload",
+      "retryCount": 0,
+      "updatedAt": "2026-05-09T05:16:25.928533Z"
+    }
+  ],
+  "pageable": {
+    "pageNumber": 0,
+    "pageSize": 10,
+    "sort": {
+      "unsorted": true,
+      "sorted": false,
+      "empty": true
+    },
+    "offset": 0,
+    "unpaged": false,
+    "paged": true
+  },
+  "totalPages": 249,
+  "totalElements": 2484,
+  "last": false,
+  "numberOfElements": 10,
+  "first": true,
+  "size": 10,
+  "number": 0,
+  "sort": {
+    "unsorted": true,
+    "sorted": false,
+    "empty": true
+  },
+  "empty": false
+}
+
+==========================================================================================
+RESET SIMULATION TO NORMAL FOR RECOVERY
+==========================================================================================
+REQUEST: Post http://localhost:28081/api/simulation/reset
+{
+  "mode": "NORMAL",
+  "availableModes": [
+    "NORMAL",
+    "DB_DEADLOCK",
+    "MQ_OUTAGE",
+    "CONSUMER_CRASH",
+    "SLOW_DATABASE",
+    "DUPLICATE_MESSAGE"
+  ]
+}
+
+==========================================================================================
+WAIT WINDOW - SLOW DATABASE RECOVERY
+==========================================================================================
+Waiting 180 seconds after reset so consumer returns to normal speed and backlog drains.
+
+==========================================================================================
+STATUS AFTER SLOW DATABASE RECOVERY
+==========================================================================================
+REQUEST: Get http://localhost:28083/api/reconciliation/status
+{
+  "failed": 726,
+  "total": 18614,
+  "reconciled": 16098,
+  "invalid": 1790,
+  "dlq": 0
+}
+
+==========================================================================================
+QUEUE DEPTH AFTER SLOW DATABASE RECOVERY
+==========================================================================================
+REQUEST: Get http://localhost:28083/api/reconciliation/queues
+{
+  "inputQueue": {
+    "available": true,
+    "depth": 0,
+    "name": "RECON.IN"
+  },
+  "deadLetterQueue": {
+    "available": true,
+    "depth": 0,
+    "name": "SYSTEM.DEAD.LETTER.QUEUE"
+  },
+  "retryQueue": {
+    "available": true,
+    "depth": 0,
+    "name": "RECON.RETRY"
+  },
+  "backoutQueue": {
+    "available": true,
+    "depth": 726,
+    "name": "RECON.BACKOUT"
+  }
+}
+
+==========================================================================================
+CONFIRM SIMULATION RESET TO NORMAL
+==========================================================================================
+REQUEST: Get http://localhost:28081/api/simulation
+{
+  "mode": "NORMAL",
+  "availableModes": [
+    "NORMAL",
+    "DB_DEADLOCK",
+    "MQ_OUTAGE",
+    "CONSUMER_CRASH",
+    "SLOW_DATABASE",
+    "DUPLICATE_MESSAGE"
+  ]
+}
+
+==========================================================================================
+PORT FORWARD OUTPUT
+==========================================================================================
+Producer port-forward stdout:
+Forwarding from 127.0.0.1:28081 -> 8081
+Forwarding from [::1]:28081 -> 8081
+Handling connection for 28081
+Handling connection for 28081
+Handling connection for 28081
+Handling connection for 28081
+Handling connection for 28081
+Handling connection for 28081
+Producer port-forward stderr:
+Dashboard port-forward stdout:
+Forwarding from 127.0.0.1:28083 -> 8083
+Forwarding from [::1]:28083 -> 8083
+Handling connection for 28083
+Handling connection for 28083
+Handling connection for 28083
+Handling connection for 28083
+Handling connection for 28083
+Handling connection for 28083
+Handling connection for 28083
+Handling connection for 28083
+Dashboard port-forward stderr:
+
+==========================================================================================
+CONSUMER LOG PROOF - SLOW DATABASE PROCESSING
+==========================================================================================
+COMMAND: kubectl logs -n recon-platform deploy/recon-consumer-app --since=20m | Select-String -Pattern 'SLOW_DATABASE|slow database|slow_database|database slow|slow db|DB_SLOW|db_slow|db_operation_slow|slow threshold|message_reconciled|transaction_processed|duration|latency' | Select-Object -First 180
+<no output>
+
+==========================================================================================
+PRODUCER LOG PROOF - SLOW DATABASE MESSAGES PUBLISHED
+==========================================================================================
+COMMAND: kubectl logs -n recon-platform deploy/recon-producer-app --since=20m | Select-String -Pattern 'SLOW_DATABASE|simulation|transaction_published|published' | Select-Object -First 120
+
+{"@timestamp":"2026-05-10T09:35:24.061482981Z","@version":"1","message":"event=transaction_published transactionId=txn-b58ed14d-771b-4e92-802c-1fc3c7685a77 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:35:24.065441768Z","@version":"1","message":"event=transaction_published transactionId=txn-c80c33a9-4a5a-4f64-b2c9-f6a8ef9daf2a queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:35:25.063129435Z","@version":"1","message":"event=transaction_published transactionId=txn-99ade035-d047-41a0-8f2c-16eb3c92da57 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:35:25.069295641Z","@version":"1","message":"event=transaction_published transactionId=txn-03f81a68-d8cf-4b6e-add3-776ed721c841 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:35:26.060626305Z","@version":"1","message":"event=transaction_published transactionId=txn-c2a2550b-8485-4b70-9052-95c44a6aca94 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:35:26.065642039Z","@version":"1","message":"event=transaction_published transactionId=txn-ba36daff-38f6-4f4b-93a9-55609928bf2e queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:35:27.059536874Z","@version":"1","message":"event=transaction_published transactionId=txn-04f7ed9d-ff3e-4d43-b524-7545aadea772 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:35:27.064864547Z","@version":"1","message":"event=transaction_published transactionId=txn-75eb8542-ebdc-4d29-9073-abb4a1137fff queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:35:28.059899624Z","@version":"1","message":"event=transaction_published transactionId=txn-78117e50-f5cb-41da-bb3b-11e38f365b7f queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:35:28.064556591Z","@version":"1","message":"event=transaction_published transactionId=txn-e434a800-7a85-40e0-9c13-1cf7623c7696 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:35:29.061843793Z","@version":"1","message":"event=transaction_published transactionId=txn-1ab4e7b5-308a-43f3-b1cd-bcac3678e256 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:35:29.065480749Z","@version":"1","message":"event=transaction_published transactionId=txn-d9a6d847-7f55-4c24-904f-4a98feb2e6b6 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:35:30.062131278Z","@version":"1","message":"event=transaction_published transactionId=txn-962ddda0-aff4-4881-96d7-b9ba11e97caa queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:35:30.065702186Z","@version":"1","message":"event=transaction_published transactionId=txn-bf88c5da-f003-40aa-96cf-d778d1764f73 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:35:31.060947981Z","@version":"1","message":"event=transaction_published transactionId=txn-c389cf56-3b1c-4580-970e-5831e7779051 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:35:31.064490755Z","@version":"1","message":"event=transaction_published transactionId=txn-a2f1124c-f6ce-461e-9b18-2c7e7c85c95b queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:35:32.061407288Z","@version":"1","message":"event=transaction_published transactionId=txn-3aa9550c-1ce2-4449-8e8b-617ef2eb7e94 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:35:32.064852445Z","@version":"1","message":"event=transaction_published transactionId=txn-66c17721-05b9-48e1-b459-ad07f4e9384c queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:35:33.062639087Z","@version":"1","message":"event=transaction_published transactionId=txn-ed2539fd-c323-4447-8e6d-38b69e2923bc queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:35:33.068391047Z","@version":"1","message":"event=transaction_published transactionId=txn-ff1e0c04-1f0b-4c8b-8598-e8bd5a826af0 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:35:34.05989448Z","@version":"1","message":"event=transaction_published transactionId=txn-8c66fc69-847d-48be-ae7f-722df315840f queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:35:34.064479675Z","@version":"1","message":"event=transaction_published transactionId=txn-cc5313d4-5cf2-4199-9e2c-882f56f13588 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:35:35.061536401Z","@version":"1","message":"event=transaction_published transactionId=txn-960a3857-bdd9-4e0d-812f-485c18f46e00 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:35:35.066749148Z","@version":"1","message":"event=transaction_published transactionId=txn-1fe80a16-b42d-4c60-a2d0-567e882d4d76 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:35:36.060152877Z","@version":"1","message":"event=transaction_published transactionId=txn-4ff52806-71ce-4e6d-a61c-146700bb8aa1 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:35:36.064665865Z","@version":"1","message":"event=transaction_published transactionId=txn-e24e9383-39d6-48a0-bab1-e21897f0cd28 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:35:37.059572743Z","@version":"1","message":"event=transaction_published transactionId=txn-01ae9cfa-da55-42cc-ac9e-31d1c88fc67b queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:35:37.064118546Z","@version":"1","message":"event=transaction_published transactionId=txn-2f322907-9425-47a6-9a38-24d0b9377bb8 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:35:38.063407711Z","@version":"1","message":"event=transaction_published transactionId=txn-cea7578f-aa18-427a-bedc-e1f341fae337 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:35:38.067557568Z","@version":"1","message":"event=transaction_published transactionId=txn-c1a57dff-42fb-49cb-967d-65f842518c59 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:35:39.062428061Z","@version":"1","message":"event=transaction_published transactionId=txn-5a79bb95-d792-49f6-8e72-9da1a93e8d67 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:35:39.066380127Z","@version":"1","message":"event=transaction_published transactionId=txn-1830f507-3205-48f2-9594-e762934a8f45 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:35:40.061490237Z","@version":"1","message":"event=transaction_published transactionId=txn-bdffe981-ab37-488f-9b95-76b40d3d4834 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:35:40.065719219Z","@version":"1","message":"event=transaction_published transactionId=txn-40b9be8d-7460-4f97-a062-2d694c2c5153 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:35:41.060324555Z","@version":"1","message":"event=transaction_published transactionId=txn-efa6dcc2-60db-4b5b-a79d-2e6f2af2466a queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:35:41.06467175Z","@version":"1","message":"event=transaction_published transactionId=txn-dfa4e4d4-5ca9-4e7b-8633-206b42680dbf queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:35:42.06214825Z","@version":"1","message":"event=transaction_published transactionId=txn-00fc5c68-03e7-4353-9b75-b0d160cf0a93 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:35:42.06755542Z","@version":"1","message":"event=transaction_published transactionId=txn-f3011528-a5f6-45a9-b2f5-25fbe0a5570b queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:35:43.060419432Z","@version":"1","message":"event=transaction_published transactionId=txn-90430d4f-80bc-4b3d-b338-d13ad0904f08 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:35:43.065275527Z","@version":"1","message":"event=transaction_published transactionId=txn-236bd011-a540-4252-b18d-56c33371e0b9 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:35:44.059565808Z","@version":"1","message":"event=transaction_published transactionId=txn-031bc138-d4d7-4b0a-9071-617633c8bba9 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:35:44.064030794Z","@version":"1","message":"event=transaction_published transactionId=txn-b1973d25-1077-44d0-b086-7b87d2d8b25d queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:35:45.060727604Z","@version":"1","message":"event=transaction_published transactionId=txn-ba1c8a42-a811-4cbd-beff-05114e527e59 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:35:45.065552421Z","@version":"1","message":"event=transaction_published transactionId=txn-2670a8c2-486f-4706-a5b3-6b7674a97dac queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:35:46.063459585Z","@version":"1","message":"event=transaction_published transactionId=txn-10131101-e7d3-4250-800b-a177e268006e queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:35:46.06768474Z","@version":"1","message":"event=transaction_published transactionId=txn-34576890-a5f0-4aee-b73d-deed5ba73fd5 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:35:47.061009548Z","@version":"1","message":"event=transaction_published transactionId=txn-876451b6-110f-44f7-b5f1-9656dbe4a6fc queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:35:47.064948789Z","@version":"1","message":"event=transaction_published transactionId=txn-1cfb1467-92cd-44a2-8479-bb719ce28e63 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:35:48.061404532Z","@version":"1","message":"event=transaction_published transactionId=txn-eb06d9b5-b8fe-4c8a-9540-3294bc0b5ec1 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:35:48.065416489Z","@version":"1","message":"event=transaction_published transactionId=txn-76d1bd29-f304-44ae-99d9-a47221eb43f5 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:35:49.060088066Z","@version":"1","message":"event=transaction_published transactionId=txn-81540c7a-6649-4fa6-9923-215c7021adb3 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:35:49.063997955Z","@version":"1","message":"event=transaction_published transactionId=txn-26e5220b-fa18-4762-b60a-606d84426cff queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:35:50.0603216Z","@version":"1","message":"event=transaction_published transactionId=txn-7cf9534a-2f47-4369-87bb-074d2f7da6da queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:35:50.065946234Z","@version":"1","message":"event=transaction_published transactionId=txn-e6fe3ded-7333-47e2-bec9-5b103017b0e1 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:35:51.060094884Z","@version":"1","message":"event=transaction_published transactionId=txn-0b7f9d5f-08e2-4346-8999-bf64394c2be6 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:35:51.064973202Z","@version":"1","message":"event=transaction_published transactionId=txn-be885ca0-e894-4451-b5c9-de139490b182 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:35:52.059937007Z","@version":"1","message":"event=transaction_published transactionId=txn-e3b60a04-434a-4450-a20e-49468a5798d7 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:35:52.066515703Z","@version":"1","message":"event=transaction_published transactionId=txn-0af2f975-a37a-4c40-8731-63e94bb0bbe1 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:35:53.06035376Z","@version":"1","message":"event=transaction_published transactionId=txn-2943af1e-01ea-4fc6-8f5e-346ec03cdb63 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:35:53.064872337Z","@version":"1","message":"event=transaction_published transactionId=txn-28c2265a-c92a-48b6-9e54-a57f0dd5f708 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:35:54.062543573Z","@version":"1","message":"event=transaction_published transactionId=txn-e4fdabdd-7c8a-45a3-ab6d-dd99b9e2f439 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:35:54.066189274Z","@version":"1","message":"event=transaction_published transactionId=txn-78576726-8d59-4dad-9678-760c61badb04 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:35:55.061323607Z","@version":"1","message":"event=transaction_published transactionId=txn-7856a450-02d5-49b3-9336-0dc4a85e29e5 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:35:55.065499707Z","@version":"1","message":"event=transaction_published transactionId=txn-04baac67-a987-4546-9d79-940f559f2cbf queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:35:56.064228448Z","@version":"1","message":"event=transaction_published transactionId=txn-c733ec6d-f95a-428f-b1b4-41c4601427c3 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:35:56.068359255Z","@version":"1","message":"event=transaction_published transactionId=txn-3f7fd9ae-0b8f-42dd-8df9-c6e1262b19fd queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:35:57.059998516Z","@version":"1","message":"event=transaction_published transactionId=txn-f371802c-0442-4aca-a082-7466344b22a7 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:35:57.06381649Z","@version":"1","message":"event=transaction_published transactionId=txn-9df0af61-4c1e-4724-b09f-3010e5f27dee queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:35:58.060182653Z","@version":"1","message":"event=transaction_published transactionId=txn-e9a67cc0-7de9-4bdc-b286-22ed203398cf queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:35:58.066179619Z","@version":"1","message":"event=transaction_published transactionId=txn-b36fdb4d-b62b-4b81-b71b-914c324e39ee queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:35:59.060196084Z","@version":"1","message":"event=transaction_published transactionId=txn-a3904dd2-0ced-4e2d-b165-9b3019977ab2 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:35:59.065281178Z","@version":"1","message":"event=transaction_published transactionId=txn-748b75b7-8d84-48f3-bd0d-8ee6ab00d18a queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:36:00.119344675Z","@version":"1","message":"event=transaction_published transactionId=txn-0640561b-8b9d-4d25-bb23-de4ce858f5ec queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:36:00.134623868Z","@version":"1","message":"event=transaction_published transactionId=txn-380c4569-b491-4907-9fa7-dfc3c4abd922 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:36:01.063122352Z","@version":"1","message":"event=transaction_published transactionId=txn-8f712867-0854-4720-af66-bf433187eff4 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:36:01.070576374Z","@version":"1","message":"event=transaction_published transactionId=txn-d51362c7-b413-4b75-89d2-61c7a6b29011 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:36:02.067898797Z","@version":"1","message":"event=transaction_published transactionId=txn-b800dd5b-669b-452a-ae86-e47b483dc1c9 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:36:02.110875718Z","@version":"1","message":"event=transaction_published transactionId=txn-523e50c7-a9df-48a5-890d-f5d1122d2d35 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:36:03.065342232Z","@version":"1","message":"event=transaction_published transactionId=txn-a32967e3-2d26-4dae-b353-c222e3598f3b queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:36:03.070866203Z","@version":"1","message":"event=transaction_published transactionId=txn-6bb5f5a4-5950-4d61-b995-868b4f1c2f19 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:36:04.061671837Z","@version":"1","message":"event=transaction_published transactionId=txn-4f51d585-45bf-4015-8833-cefdf1d8da05 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:36:04.066554829Z","@version":"1","message":"event=transaction_published transactionId=txn-94a46fbe-bba9-4827-a3e0-be726d1c7a98 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:36:05.061097111Z","@version":"1","message":"event=transaction_published transactionId=txn-fccb7c3c-c5b6-47bf-b48f-6de4a2f4b8a6 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:36:05.065492806Z","@version":"1","message":"event=transaction_published transactionId=txn-6653181e-9b9b-4f3c-877c-f16d0df01436 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:36:06.060725462Z","@version":"1","message":"event=transaction_published transactionId=txn-e74f6242-4328-4cf4-aea8-d1f09ed5c3aa queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:36:06.070646846Z","@version":"1","message":"event=transaction_published transactionId=txn-d592947c-711d-49d1-bd93-bceec6edf22f queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:36:07.060439557Z","@version":"1","message":"event=transaction_published transactionId=txn-f61cb806-bfd6-4ef6-bcda-65319b4c92ac queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:36:07.066582916Z","@version":"1","message":"event=transaction_published transactionId=txn-7e2e9bbe-9051-4040-be70-61d063277f7c queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:36:08.060306583Z","@version":"1","message":"event=transaction_published transactionId=txn-8ce1368e-1678-468a-b084-bf60a1607100 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:36:08.0655569Z","@version":"1","message":"event=transaction_published transactionId=txn-5f5ae007-c386-4a5b-8332-56e8d2fde34f queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:36:09.059815045Z","@version":"1","message":"event=transaction_published transactionId=txn-6609f7aa-0298-4d32-b65f-266a2909d46d queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:36:09.06441476Z","@version":"1","message":"event=transaction_published transactionId=txn-70b22904-0d1a-477e-8cf7-7b9fec261b71 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:36:10.061992819Z","@version":"1","message":"event=transaction_published transactionId=txn-eb4d61cc-80c5-4f69-a20d-cdfeaa3bed7a queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:36:10.065539878Z","@version":"1","message":"event=transaction_published transactionId=txn-089073b6-6211-494a-9949-16942001c52a queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:36:11.060902176Z","@version":"1","message":"event=transaction_published transactionId=txn-11de9743-5394-4345-a79d-5c6db2c71b50 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:36:11.065149362Z","@version":"1","message":"event=transaction_published transactionId=txn-af23ef7b-3dfa-40cb-b1c5-fb6d76e095f6 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:36:12.062015176Z","@version":"1","message":"event=transaction_published transactionId=txn-fd00016e-ea13-41af-92c9-88231548e5ba queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:36:12.065474838Z","@version":"1","message":"event=transaction_published transactionId=txn-ff9c4b53-ac67-4770-9d26-4a3d9ffa8a6c queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:36:13.062418648Z","@version":"1","message":"event=transaction_published transactionId=txn-0e5d0cc2-8986-4cc1-a093-d026a34da2ac queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:36:13.066806423Z","@version":"1","message":"event=transaction_published transactionId=txn-306557c0-f09b-466f-b813-70e59a9ec671 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:36:14.060645316Z","@version":"1","message":"event=transaction_published transactionId=txn-0cbe606f-be62-4522-8b5b-673df1d2c775 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:36:14.066564977Z","@version":"1","message":"event=transaction_published transactionId=txn-210ceace-8d8f-4c3d-a90c-22a79cf482ca queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:36:15.064366586Z","@version":"1","message":"event=transaction_published transactionId=txn-785cb748-ddf9-4eea-bba3-b72988cb72f2 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:36:15.069488608Z","@version":"1","message":"event=transaction_published transactionId=txn-49bb9094-cbb9-4d44-924e-1c4f04b64222 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:36:16.06098324Z","@version":"1","message":"event=transaction_published transactionId=txn-a505dac8-36d5-4427-ad56-732f3efb05e4 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:36:16.066205203Z","@version":"1","message":"event=transaction_published transactionId=txn-5f77dc05-c9f3-4c57-8536-01d19c0ee553 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:36:17.06006409Z","@version":"1","message":"event=transaction_published transactionId=txn-e31949ce-50eb-4e11-978e-730ce08254a4 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:36:17.06467728Z","@version":"1","message":"event=transaction_published transactionId=txn-1f71af1b-9cea-4eb2-b049-c9f60ee89008 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:36:18.062427777Z","@version":"1","message":"event=transaction_published transactionId=txn-90362d65-dd98-4ad7-9513-09a0de0756f9 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:36:18.066313762Z","@version":"1","message":"event=transaction_published transactionId=txn-8b9998c2-69c8-4466-b791-663a1bdc24a7 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:36:19.061529957Z","@version":"1","message":"event=transaction_published transactionId=txn-fb924d56-b868-47cd-9c55-ea89f9a5bca0 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:36:19.065094647Z","@version":"1","message":"event=transaction_published transactionId=txn-7539d899-cf66-4ac8-b781-8ca6f2fe32ec queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:36:20.062447634Z","@version":"1","message":"event=transaction_published transactionId=txn-01c083f9-f8db-47e7-804e-76db0d77cab4 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:36:20.06614361Z","@version":"1","message":"event=transaction_published transactionId=txn-914a2d98-10db-41f6-9c75-990302de36d2 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:36:21.060446042Z","@version":"1","message":"event=transaction_published transactionId=txn-7143110f-6c4d-4a16-9bcd-0d9070d02419 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:36:21.063865677Z","@version":"1","message":"event=transaction_published transactionId=txn-759babb7-7cef-4c5c-8ab5-fc41948b5b68 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:36:22.061661999Z","@version":"1","message":"event=transaction_published transactionId=txn-7b409ad2-9c47-42e7-a8ba-c791db380805 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:36:22.067622788Z","@version":"1","message":"event=transaction_published transactionId=txn-0efd79e5-1198-4fbc-a5f9-19eff9fcfec1 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:36:23.060680081Z","@version":"1","message":"event=transaction_published transactionId=txn-42727239-00fc-460f-ab8d-59af672bc5d2 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+{"@timestamp":"2026-05-10T09:36:23.065684658Z","@version":"1","message":"event=transaction_published transactionId=txn-c1672356-25ee-4b0b-b047-a2b3848405b7 queue=RECON.IN","logger_name":"com.ntt.recon.service.ProducerService","thread_name":"scheduling-1","level":"INFO","level_value":20000,"appName":"recon-producer-app","application":"recon-producer-app"}
+
+
+==========================================================================================
+PODS AFTER SLOW DATABASE RECOVERY
+==========================================================================================
+COMMAND: kubectl get pods -n recon-platform -o wide
+NAME                                   READY   STATUS    RESTARTS   AGE    IP               NODE                                                NOMINATED NODE   READINESS GATES
+ibm-mq-0                               1/1     Running   0          28m    192.168.13.38    ip-192-168-23-26.ap-southeast-1.compute.internal    <none>           <none>
+recon-consumer-app-784f77dff8-rqbx5    1/1     Running   0          15m    192.168.48.123   ip-192-168-59-106.ap-southeast-1.compute.internal   <none>           <none>
+recon-dashboard-api-7c7dcc4768-4vprs   1/1     Running   0          123m   192.168.75.43    ip-192-168-90-90.ap-southeast-1.compute.internal    <none>           <none>
+recon-producer-app-7878df768-p65k4     1/1     Running   0          123m   192.168.41.193   ip-192-168-59-106.ap-southeast-1.compute.internal   <none>           <none>
+
+==========================================================================================
+DEPLOYMENTS AFTER SLOW DATABASE RECOVERY
+==========================================================================================
+COMMAND: kubectl get deployments -n recon-platform
+NAME                  READY   UP-TO-DATE   AVAILABLE   AGE
+recon-consumer-app    1/1     1            1           43h
+recon-dashboard-api   1/1     1            1           43h
+recon-producer-app    1/1     1            1           43h
+
+==========================================================================================
+PROOF COUNTS FROM EVIDENCE LOG
+==========================================================================================
+ENABLE SLOW_DATABASE SIMULATION=1
+CONFIRM SIMULATION MODE=1
+QUEUE DEPTH DURING SLOW DATABASE=1
+QUEUE DEPTH AFTER SLOW DATABASE RECOVERY=1
+SLOW_DATABASE=13
+slow database=21
+db_operation_slow=1
+message_reconciled=1
+transaction_published=121
+CompletedAt=2026-05-10T17:55:20.2844252+08:00
