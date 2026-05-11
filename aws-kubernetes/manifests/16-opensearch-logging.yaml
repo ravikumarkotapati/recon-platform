@@ -1,0 +1,337 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: fluent-bit
+  namespace: observability
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: fluent-bit-read
+rules:
+  - apiGroups: [""]
+    resources:
+      - namespaces
+      - pods
+      - nodes
+    verbs:
+      - get
+      - list
+      - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: fluent-bit-read
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: fluent-bit-read
+subjects:
+  - kind: ServiceAccount
+    name: fluent-bit
+    namespace: observability
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fluent-bit-config
+  namespace: observability
+data:
+  fluent-bit.conf: |
+    [SERVICE]
+        Flush         5
+        Log_Level     info
+        Parsers_File  parsers.conf
+        storage.path  /var/fluent-bit/state
+
+    [INPUT]
+        Name              tail
+        Path              /var/log/containers/recon-*.log,/var/log/containers/ibm-mq-*.log
+        Tag               kube.recon.*
+        multiline.parser  docker, cri
+        DB                /var/fluent-bit/state/flb_kube.db
+        Mem_Buf_Limit     10MB
+        Skip_Long_Lines   On
+        Refresh_Interval  10
+
+    [FILTER]
+        Name                kubernetes
+        Match               kube.*
+        Kube_URL            https://kubernetes.default.svc:443
+        Merge_Log           On
+        Merge_Log_Key       app_log
+        Keep_Log            Off
+        K8S-Logging.Parser  On
+        K8S-Logging.Exclude On
+
+    [FILTER]
+        Name    modify
+        Match   kube.*
+        Add     cluster recon-eks
+        Add     environment assessment
+        Add     platform reconciliation
+
+    [OUTPUT]
+        Name                opensearch
+        Match               kube.*
+        Host                opensearch.observability.svc.cluster.local
+        Port                9200
+        Logstash_Format     On
+        Logstash_Prefix     recon-platform
+        Suppress_Type_Name  On
+        Replace_Dots        On
+        Retry_Limit         False
+
+  parsers.conf: |
+    [PARSER]
+        Name        json
+        Format      json
+        Time_Key    @timestamp
+        Time_Format %Y-%m-%dT%H:%M:%S.%L%z
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: fluent-bit
+  namespace: observability
+  labels:
+    app: fluent-bit
+spec:
+  selector:
+    matchLabels:
+      app: fluent-bit
+  template:
+    metadata:
+      labels:
+        app: fluent-bit
+    spec:
+      serviceAccountName: fluent-bit
+      terminationGracePeriodSeconds: 30
+      tolerations:
+        - operator: Exists
+      containers:
+        - name: fluent-bit
+          image: public.ecr.aws/aws-observability/aws-for-fluent-bit:stable
+          imagePullPolicy: IfNotPresent
+          resources:
+            requests:
+              cpu: 25m
+              memory: 48Mi
+            limits:
+              cpu: 150m
+              memory: 192Mi
+          volumeMounts:
+            - name: config
+              mountPath: /fluent-bit/etc/
+            - name: varlog
+              mountPath: /var/log
+              readOnly: true
+            - name: varlibdockercontainers
+              mountPath: /var/lib/docker/containers
+              readOnly: true
+            - name: state
+              mountPath: /var/fluent-bit/state
+      volumes:
+        - name: config
+          configMap:
+            name: fluent-bit-config
+        - name: varlog
+          hostPath:
+            path: /var/log
+        - name: varlibdockercontainers
+          hostPath:
+            path: /var/lib/docker/containers
+        - name: state
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: opensearch
+  namespace: observability
+  labels:
+    app: opensearch
+spec:
+  type: ClusterIP
+  selector:
+    app: opensearch
+  ports:
+    - name: http
+      port: 9200
+      targetPort: 9200
+    - name: transport
+      port: 9300
+      targetPort: 9300
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: opensearch
+  namespace: observability
+  labels:
+    app: opensearch
+spec:
+  replicas: 1
+  revisionHistoryLimit: 2
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: opensearch
+  template:
+    metadata:
+      labels:
+        app: opensearch
+    spec:
+      terminationGracePeriodSeconds: 60
+      initContainers:
+        - name: set-vm-max-map-count
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - sysctl -w vm.max_map_count=262144
+          securityContext:
+            privileged: true
+            runAsUser: 0
+        - name: fix-data-permissions
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - chown -R 1000:1000 /usr/share/opensearch/data
+          securityContext:
+            runAsUser: 0
+          volumeMounts:
+            - name: opensearch-data
+              mountPath: /usr/share/opensearch/data
+      containers:
+        - name: opensearch
+          image: opensearchproject/opensearch:2.14.0
+          imagePullPolicy: IfNotPresent
+          args:
+            - -Ediscovery.type=single-node
+            - -Ehttp.host=0.0.0.0
+            - -Etransport.host=127.0.0.1
+            - -Ecluster.routing.allocation.disk.threshold_enabled=false
+          env:
+            - name: OPENSEARCH_JAVA_OPTS
+              value: "-Xms192m -Xmx192m"
+            - name: DISABLE_SECURITY_PLUGIN
+              value: "true"
+          ports:
+            - name: http
+              containerPort: 9200
+            - name: transport
+              containerPort: 9300
+          readinessProbe:
+            httpGet:
+              path: /_cluster/health
+              port: 9200
+            initialDelaySeconds: 90
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 20
+          livenessProbe:
+            httpGet:
+              path: /_cluster/health
+              port: 9200
+            initialDelaySeconds: 360
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+          volumeMounts:
+            - name: opensearch-data
+              mountPath: /usr/share/opensearch/data
+      volumes:
+        - name: opensearch-data
+          emptyDir:
+            sizeLimit: 4Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: opensearch-dashboards
+  namespace: observability
+  labels:
+    app: opensearch-dashboards
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+    service.beta.kubernetes.io/aws-load-balancer-scheme: "internet-facing"
+spec:
+  type: LoadBalancer
+  selector:
+    app: opensearch-dashboards
+  ports:
+    - name: http
+      port: 80
+      targetPort: 5601
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: opensearch-dashboards
+  namespace: observability
+  labels:
+    app: opensearch-dashboards
+spec:
+  replicas: 1
+  revisionHistoryLimit: 2
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: opensearch-dashboards
+  template:
+    metadata:
+      labels:
+        app: opensearch-dashboards
+    spec:
+      containers:
+        - name: opensearch-dashboards
+          image: opensearchproject/opensearch-dashboards:2.14.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: OPENSEARCH_HOSTS
+              value: '["http://opensearch.observability.svc.cluster.local:9200"]'
+            - name: DISABLE_SECURITY_DASHBOARDS_PLUGIN
+              value: "true"
+          ports:
+            - name: http
+              containerPort: 5601
+          readinessProbe:
+            httpGet:
+              path: /api/status
+              port: 5601
+            initialDelaySeconds: 120
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 20
+          livenessProbe:
+            httpGet:
+              path: /api/status
+              port: 5601
+            initialDelaySeconds: 420
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 25m
+              memory: 96Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+
